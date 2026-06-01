@@ -1,0 +1,18 @@
+# PRODUCER REFERENCE SCHEMA
+# Optional market intelligence used to map industry scale and validate output thresholds.
+producers:
+  type: object
+  additionalProperties:
+    type: object
+    required: [chemicals, capacity_tons_per_year, regions, source]
+    properties:
+      chemicals:
+        type: array
+        items: { type: string }
+      capacity_tons_per_year:
+        type: object
+        additionalProperties: { type: integer, minimum: 0 }
+      regions:
+        type: array
+        items: { type: string }
+      source: { type: string }
