@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "counter-offer-coach"
 version = "0.1.0"
@@ -14,6 +18,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "black", "pre-commit"]
+
+# This repo is a collection of scripts, not an importable library, so there are no
+# packages to build. This disables setuptools auto-discovery (which otherwise errors
+# on the multiple top-level folders) while still installing the dependencies above.
+[tool.setuptools]
+py-modules = []
 
 [tool.ruff]
 line-length = 100
