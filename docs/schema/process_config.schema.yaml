@@ -1,0 +1,79 @@
+# PROCESS CONFIGURATION SCHEMA
+# Blueprint for manufacturing steps. All numeric values are static engineering
+# limits or heuristics provided by Category 1.
+processes:
+  type: object
+  additionalProperties:
+    type: object
+    required: [routes]
+    properties:
+      routes:
+        type: object
+        additionalProperties:
+          type: object
+          required: [is_default, steps, markup]
+          properties:
+            is_default: { type: boolean }
+            steps:
+              type: array
+              items:
+                type: object
+                required:
+                  - step_id
+                  - order
+                  - inputs
+                  - main_output
+                  - co_products
+                  - yield_pct
+                  - energy
+                  - catalyst
+                properties:
+                  step_id: { type: string }
+                  order: { type: integer, minimum: 1 }
+                  inputs:
+                    type: array
+                    items:
+                      type: object
+                      required: [chemical_id, stoichiometric_ratio]
+                      properties:
+                        chemical_id: { type: string }
+                        stoichiometric_ratio: { type: number, minimum: 0.0 }
+                  main_output: { type: string }
+                  co_products:
+                    type: array
+                    items:
+                      type: object
+                      required: [chemical_id, stoichiometric_ratio]
+                      properties:
+                        chemical_id: { type: string }
+                        stoichiometric_ratio: { type: number }
+                  yield_pct:
+                    type: object
+                    required: [value, uncertainty, source, confidence]
+                    properties:
+                      value: { type: number, minimum: 0.0, maximum: 100.0 }
+                      uncertainty: { type: number, minimum: 0.0 }
+                      source: { type: string }
+                      confidence: { type: string, enum: ["high", "medium", "low"] }
+                  energy:
+                    type: object
+                    required: [electricity_kwh_per_ton_output, steam_gj_per_ton_output, source, confidence]
+                    properties:
+                      electricity_kwh_per_ton_output: { type: number }
+                      steam_gj_per_ton_output: { type: number }
+                      source: { type: string }
+                      confidence: { type: string, enum: ["high", "medium", "low"] }
+                  catalyst:
+                    type: object
+                    required: [name, cost_usd_per_ton_output]
+                    properties:
+                      name: { type: string }
+                      cost_usd_per_ton_output: { type: number }
+            markup:
+              type: object
+              required: [variable_pct, fixed_pct, target_margin_pct, source]
+              properties:
+                variable_pct: { type: number, minimum: 0.0, maximum: 1.0 }
+                fixed_pct: { type: number, minimum: 0.0, maximum: 1.0 }
+                target_margin_pct: { type: number, minimum: 0.0, maximum: 1.0 }
+                source: { type: string }

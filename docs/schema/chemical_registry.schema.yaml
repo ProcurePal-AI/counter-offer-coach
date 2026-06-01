@@ -1,0 +1,33 @@
+# CHEMICAL REGISTRY SCHEMA
+# Ensures every modeled substance has a unique, verifiable identity before entering the engine.
+chemicals:
+  type: object
+  additionalProperties:
+    type: object
+    required:
+      - cas
+      - pubchem_cid
+      - iupac_name
+      - molecular_weight_g_per_mol
+      - hts_codes
+      - status
+    properties:
+      cas:
+        type: string
+        pattern: "^[0-9]{2,7}-[0-9]{2}-[0-9]$"   # Standard CAS registry regex
+      pubchem_cid:
+        type: integer
+        minimum: 1
+      iupac_name:
+        type: string
+      molecular_weight_g_per_mol:
+        type: number
+        minimum: 0.1
+      hts_codes:
+        type: array
+        items:
+          type: string
+          pattern: "^[0-9]{4}\\.[0-9]{2}(\\.[0-9]{2})?$"   # HTS tariff code structure
+      status:
+        type: string
+        enum: ["active", "draft", "deprecated", "feedstock_only"]
