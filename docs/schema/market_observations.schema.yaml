@@ -25,3 +25,90 @@ utility_observations:
       region: { type: string }
       period: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }
       price_usd_per_unit: { type: number, minimum: 0.0 }
+
+producer_filings:
+  type: array
+  items:
+    type: object
+    required:
+      - company_name
+      - source
+      - filing_type
+      - filing_date
+      - source_url
+      - fetched_at
+    properties:
+      company_name:
+        type: string
+      ticker:
+        type: string
+      source:
+        type: string
+        enum: ["SEC_EDGAR", "company_ir", "manual"]
+      filing_type:
+        type: string
+        enum: ["10-K", "10-Q", "20-F", "annual_report", "quarterly_report", "other"]
+      filing_date:
+        type: string
+        format: date
+      period_end_date:
+        type: string
+        format: date
+      source_url:
+        type: string
+      local_file_path:
+        type: string
+      fetched_at:
+        type: string
+        format: date-time
+      notes:
+        type: string
+
+pipeline_runs:
+  type: array
+  items:
+    type: object
+    required:
+      - pipeline_name
+      - source
+      - run_started_at
+      - status
+    properties:
+      pipeline_name:
+        type: string
+        enum:
+          - pubchem_static_pull
+          - eia_connector
+          - usitc_dataweb_puller
+          - usgs_yearbook_parser
+          - sec_edgar_puller
+      source:
+        type: string
+        enum: ["PubChem", "EIA", "USITC", "USGS", "SEC_EDGAR"]
+      run_started_at:
+        type: string
+        format: date-time
+      run_finished_at:
+        type: string
+        format: date-time
+      status:
+        type: string
+        enum: ["success", "partial_success", "failed", "running"]
+      records_inserted:
+        type: integer
+        minimum: 0
+      records_updated:
+        type: integer
+        minimum: 0
+      latest_data_period:
+        type: string
+        pattern: "^[0-9]{4}-[0-9]{2}$"
+      freshness_days:
+        type: integer
+        minimum: 0
+      is_stale:
+        type: boolean
+      error_message:
+        type: string
+      notes:
+        type: string
