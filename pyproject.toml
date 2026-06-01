@@ -1,0 +1,25 @@
+[project]
+name = "counter-offer-coach"
+version = "0.1.0"
+description = "Should-cost and Bayesian calibration engine for specialty chemicals procurement"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "requests",
+    "pyyaml",
+    "numpy",
+    "streamlit",
+    "pdfplumber",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "black", "pre-commit"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.black]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

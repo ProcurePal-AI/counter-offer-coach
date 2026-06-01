@@ -1,0 +1,63 @@
+# Aniline process configuration -- conforms to docs/schema/process_config.schema.yaml
+# Route: benzene nitration -> vapor-phase hydrogenation (industry standard, 80%+ of output)
+# Base-case numbers; [VARIABLE] fields feed sensitivity / Monte Carlo in the engine.
+# Sources: Ullmann's "Aniline"; Winter et al. (2021) J. Cleaner Production; Towler & Sinnott Ch 6-7
+processes:
+  aniline:
+    routes:
+      benzene_nitration_hydrogenation:
+        is_default: true
+        steps:
+          - step_id: nitration
+            order: 1
+            inputs:
+              - chemical_id: benzene
+                stoichiometric_ratio: 1.0
+              - chemical_id: nitric_acid
+                stoichiometric_ratio: 1.0
+            main_output: nitrobenzene
+            co_products:
+              - chemical_id: water
+                stoichiometric_ratio: 1.0
+            yield_pct:
+              value: 98.0
+              uncertainty: 1.0
+              source: "Ullmann's Aniline; Winter et al. 2021"
+              confidence: high
+            energy:
+              electricity_kwh_per_ton_output: 120
+              steam_gj_per_ton_output: 1.5
+              source: "base-case estimate; total route 3.0-5.0 GJ/t"
+              confidence: medium
+            catalyst:
+              name: "sulfuric_acid (mixed acid)"
+              cost_usd_per_ton_output: 5
+          - step_id: hydrogenation
+            order: 2
+            inputs:
+              - chemical_id: nitrobenzene
+                stoichiometric_ratio: 1.0
+              - chemical_id: hydrogen
+                stoichiometric_ratio: 3.0
+            main_output: aniline
+            co_products:
+              - chemical_id: water
+                stoichiometric_ratio: 2.0
+            yield_pct:
+              value: 99.0
+              uncertainty: 0.5
+              source: "Ullmann's Aniline; Winter et al. 2021"
+              confidence: high
+            energy:
+              electricity_kwh_per_ton_output: 180
+              steam_gj_per_ton_output: 2.5
+              source: "base-case estimate; range 200-400 kWh/t total"
+              confidence: medium
+            catalyst:
+              name: "Cu_based"
+              cost_usd_per_ton_output: 10
+        markup:
+          variable_pct: 0.10      # range 0.08-0.15 of feedstock (Towler heuristic)
+          fixed_pct: 0.07         # range 0.05-0.10 of feedstock + utilities
+          target_margin_pct: 0.10
+          source: "Towler & Sinnott Ch 6-7; base case -- VERIFY before investor use"
