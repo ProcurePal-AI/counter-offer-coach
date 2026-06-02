@@ -25,13 +25,13 @@ processes:
               source: "Ullmann's Aniline; Winter et al. 2021"
               confidence: high
             energy:
-              electricity_kwh_per_ton_output: null      # [TBD] route total 300 kWh/t; per-step split not researched
-              steam_gj_per_ton_output: null             # [TBD] route total 4.0 GJ/t; per-step split not researched
-              source: "route-level only (Leo); per-step split NOT researched"
+              electricity_kwh_per_ton_output: 120        # [ASSUMED SPLIT] route total ~300 kWh/t; sums with hydrogenation (180)
+              steam_gj_per_ton_output: 1.5               # [ASSUMED SPLIT] route total ~4.0 GJ/t; mixed-acid reconcentration is steam-heavy
+              source: "assumed split of route total (Leo); per-step split NOT in primary source -- refine with ecoinvent/Ullmann's"
               confidence: low
             catalyst:
               name: "sulfuric acid (mixed-acid catalyst)"  # [CHEMISTRY] H2SO4 generates the nitronium ion
-              cost_usd_per_ton_output: null             # [TBD] Leo lists H2SO4 as feedstock makeup (0.03 t/t), not a catalyst cost
+              cost_usd_per_ton_output: 3.6              # [LEO] H2SO4 makeup 0.03 t/t x ~$120/t; counted here (not in inputs) to avoid double-count
           - step_id: hydrogenation
             order: 2
             inputs:
@@ -49,25 +49,25 @@ processes:
               source: "Ullmann's Aniline; Winter et al. 2021"
               confidence: high
             energy:
-              electricity_kwh_per_ton_output: null      # [TBD] route total 300 kWh/t; per-step split not researched
-              steam_gj_per_ton_output: null             # [TBD] route total 4.0 GJ/t; per-step split not researched
-              source: "route-level only (Leo); per-step split NOT researched"
+              electricity_kwh_per_ton_output: 180        # [ASSUMED SPLIT] route total ~300 kWh/t; vapor-phase recycle/compression is power-heavy
+              steam_gj_per_ton_output: 2.5               # [ASSUMED SPLIT] route total ~4.0 GJ/t; sums with nitration (1.5)
+              source: "assumed split of route total (Leo); per-step split NOT in primary source -- refine with ecoinvent/Ullmann's"
               confidence: low
             catalyst:
               name: "Cu_based"                          # [LEO] industry standard for vapor-phase
               cost_usd_per_ton_output: 10               # [LEO] base case; range 5–20
-          markup:
-           # Variable conversion = RESIDUAL allowance ONLY (minor unmodeled items:
-           # process/cooling water, routine supplies, minor consumables, handling).
-           # NOT the all-in Towler 8-15% figure — utilities + catalyst are modeled
-           # explicitly above, so the full figure would DOUBLE-COUNT and inflate the
-           # floor (which shrinks the premium). (Yuki, 1.3)
-           variable_pct: 0.02                            # [YUKI 1.3] residual, fraction of feedstock; sensitivity 0.00–0.05
-           # Towler fixed costs are CAPITAL/LABOR-driven (maintenance = % of ISBL,
-           # labor = shift positions x salary, etc.), NOT a % of feedstock. No plant
-           # capital/labor data from public sources, so this is a COARSE SOFT
-           # placeholder to let the deterministic engine run — treat as wide/uncertain
-           # in calibration. Production derives it from plant capital. (Yuki, 1.3)
-           fixed_pct: 0.08                               # [SOFT PLACEHOLDER] coarse; NOT a researched feedstock fraction
-           target_margin_pct: null                       # [TBD — YUKI] awaiting EBITDA-margin figure for commodity organics
-           source: "Towler & Sinnott Ch 6-8 (Yuki 1.3): variable = 2% residual (anti-double-count); fixed = capital/labor-based placeholder; margin pending EBITDA figure"
+        markup:
+          # Variable conversion = RESIDUAL allowance ONLY (minor unmodeled items:
+          # process/cooling water, routine supplies, minor consumables, handling).
+          # NOT the all-in Towler 8-15% figure — utilities + catalyst are modeled
+          # explicitly above, so the full figure would DOUBLE-COUNT and inflate the
+          # floor (which shrinks the premium). (Yuki, 1.3)
+          variable_pct: 0.02                            # [YUKI 1.3] residual, fraction of feedstock; sensitivity 0.00–0.05
+          # Towler fixed costs are CAPITAL/LABOR-driven (maintenance = % of ISBL,
+          # labor = shift positions x salary, etc.), NOT a % of feedstock. No plant
+          # capital/labor data from public sources, so this is a COARSE SOFT
+          # placeholder to let the deterministic engine run — treat as wide/uncertain
+          # in calibration. Production derives it from plant capital. (Yuki, 1.3)
+          fixed_pct: 0.08                               # [SOFT PLACEHOLDER] coarse; NOT a researched feedstock fraction
+          target_margin_pct: null                       # [TBD — YUKI] awaiting EBITDA-margin figure for commodity organics
+          source: "Towler & Sinnott Ch 6-8 (Yuki 1.3): variable = 2% residual (anti-double-count); fixed = capital/labor-based placeholder; margin pending EBITDA figure"
