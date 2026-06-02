@@ -1,0 +1,36 @@
+name: EIA monthly pull
+
+# Pulls utility price signals from the EIA Open Data API.
+#  - schedule:         runs automatically on the 1st of every month (06:00 UTC)
+#  - workflow_dispatch: adds a "Run workflow" button so anyone with repo access can
+#                       trigger it on demand to verify the connector works
+#
+# The API key is NOT in the code. It is read from the EIA_API_KEY repository secret
+# (Settings -> Secrets and variables -> Actions). GitHub masks it in the logs, so a
+# run can be verified without ever exposing the key.
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Pull EIA data
+        run: python pipeline/eia.py
+        env:
+          EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+      # Make the pulled CSV downloadable from the run page so the data can be
+      # inspected. (On the runner this file is otherwise ephemeral.)
+      - name: Upload pulled data
+        uses: actions/upload-artifact@v4
+        with:
+          name: utility-observations
+          path: data/utility_observations.csv
+          if-no-files-found: error
