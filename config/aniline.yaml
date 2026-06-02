@@ -25,13 +25,13 @@ processes:
               source: "Ullmann's Aniline; Winter et al. 2021"
               confidence: high
             energy:
-              electricity_kwh_per_ton_output: null      # [TBD] route total 300 kWh/t; per-step split not researched
-              steam_gj_per_ton_output: null             # [TBD] route total 4.0 GJ/t; per-step split not researched
-              source: "route-level only (Leo); per-step split NOT researched"
+              electricity_kwh_per_ton_output: 120        # [ASSUMED SPLIT] route total ~300 kWh/t; sums with hydrogenation (180)
+              steam_gj_per_ton_output: 1.5               # [ASSUMED SPLIT] route total ~4.0 GJ/t; mixed-acid reconcentration is steam-heavy
+              source: "assumed split of route total (Leo); per-step split NOT in primary source -- refine with ecoinvent/Ullmann's"
               confidence: low
             catalyst:
               name: "sulfuric acid (mixed-acid catalyst)"  # [CHEMISTRY] H2SO4 generates the nitronium ion
-              cost_usd_per_ton_output: null             # [TBD] Leo lists H2SO4 as feedstock makeup (0.03 t/t), not a catalyst cost
+              cost_usd_per_ton_output: 3.6              # [LEO] H2SO4 makeup 0.03 t/t x ~$120/t; counted here (not in inputs) to avoid double-count
           - step_id: hydrogenation
             order: 2
             inputs:
@@ -49,9 +49,9 @@ processes:
               source: "Ullmann's Aniline; Winter et al. 2021"
               confidence: high
             energy:
-              electricity_kwh_per_ton_output: null      # [TBD] route total 300 kWh/t; per-step split not researched
-              steam_gj_per_ton_output: null             # [TBD] route total 4.0 GJ/t; per-step split not researched
-              source: "route-level only (Leo); per-step split NOT researched"
+              electricity_kwh_per_ton_output: 180        # [ASSUMED SPLIT] route total ~300 kWh/t; vapor-phase recycle/compression is power-heavy
+              steam_gj_per_ton_output: 2.5               # [ASSUMED SPLIT] route total ~4.0 GJ/t; sums with nitration (1.5)
+              source: "assumed split of route total (Leo); per-step split NOT in primary source -- refine with ecoinvent/Ullmann's"
               confidence: low
             catalyst:
               name: "Cu_based"                          # [LEO] industry standard for vapor-phase
