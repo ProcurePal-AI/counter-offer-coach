@@ -33,7 +33,7 @@ counter-offer-coach/
 ├── docs/
 │   └── schema/      # Master schema — chemical registry, process config, market observations, predictions
 ├── tests/           # pytest test suite
-└── data/            # Local SQLite DB — git-ignored; holds live price pulls
+└── data/            # Shared PostgreSQL DB — git-ignored; holds live price pulls
 ```
 
 ---
