@@ -29,9 +29,12 @@ PUBCHEM_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 # CIDs are PubChem identities. HTS codes and status are project decisions
 # (not PubChem data), pinned here and merged into the pulled record.
 CHEMICALS = {
-    "benzene": {"cid": 241, "hts_codes": ["2902.20.00"], "status": "feedstock_only"},
-    "nitrobenzene": {"cid": 7474, "hts_codes": ["2904.20.10"], "status": "feedstock_only"},
-    "aniline": {"cid": 6115, "hts_codes": ["2921.41.20"], "status": "active"},
+    "benzene":      {"cid": 241,  "hts_codes": ["2902.20.00"], "status": "feedstock_only"},
+    "nitrobenzene": {"cid": 7416, "hts_codes": ["2904.20.10"], "status": "feedstock_only"},
+    "aniline":      {"cid": 6115, "hts_codes": ["2921.41.20"], "status": "active"},
+    "nitric_acid":  {"cid": 944,  "hts_codes": ["2808.00.00"], "status": "feedstock_only"},
+    "hydrogen":     {"cid": 783,  "hts_codes": ["2804.10.00"], "status": "feedstock_only"},
+    "water":        {"cid": 962,  "hts_codes": [],             "status": "feedstock_only"},
 }
 
 CAS_RE = re.compile(r"^\d{2,7}-\d{2}-\d$")
