@@ -1,27 +1,41 @@
 # MARKET OBSERVATIONS SCHEMA
 # Append-only tables managed by the Category 2 live pipeline.
+# Designed source-agnostic: a new feed (e.g. ICIS) is added by populating existing
+# nullable fields and tagging `source`, not by migrating the schema.
+
 price_observations:
   type: array
   items:
     type: object
-    required: [chemical_id, source, hts_code, region, period, price_usd_per_kg, fetched_at]
+    # Universal core -- every source (USITC, ICIS, ...) provides these.
+    required: [chemical_id, source, region, period, price_usd_per_kg, fetched_at]
     properties:
       chemical_id: { type: string }
       source: { type: string }
-      hts_code: { type: string }
       region: { type: string }
       period: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }   # YYYY-MM
       price_usd_per_kg: { type: number, minimum: 0.0 }
       fetched_at: { type: string, format: "date-time" }
+      # Source-specific, nullable. USITC carries hts_code; ICIS carries grade +
+      # assessment_type. Adding a feed later populates these, not a migration.
+      hts_code: { type: ["string", "null"] }            # USITC tariff line; null for index feeds
+      grade: { type: ["string", "null"] }               # product grade/spec; null for customs data
+      assessment_type:                                   # ICIS spot vs contract; null otherwise
+        type: ["string", "null"]
+        enum: ["spot", "contract", null]
 
 utility_observations:
   type: array
   items:
     type: object
-    required: [utility, source, region, period, price_usd_per_unit]
+    required: [utility, source, unit, region, period, price_usd_per_unit, fetched_at]
     properties:
       utility: { type: string }
       source: { type: string }
+      unit:                                              # denominator of price_usd_per_unit
+        type: string
+        enum: ["kWh", "MMBtu", "Mcf", "GJ", "m3"]        # extend as utilities are added
       region: { type: string }
       period: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }
       price_usd_per_unit: { type: number, minimum: 0.0 }
+      fetched_at: { type: string, format: "date-time" }
