@@ -107,3 +107,40 @@ def test_eia_utility_row_validates():
            "region": "US", "period": "2025-01", "price_usd_per_unit": 3.5,
            "fetched_at": "2025-02-01T00:00:00+00:00"}
     assert not list(_validator("utility_observations").iter_errors(row))
+
+
+# ---- 5. process-graph integrity: intermediates vs purchased feedstocks -----
+# Locks the engine's cost-resolution contract before the engine exists:
+#   * an input also produced as an earlier step's main_output is an INTERMEDIATE
+#     (cost flows from that step) and must be produced BEFORE it's consumed;
+#   * an input produced by no step is a PURCHASED FEEDSTOCK and must have a
+#     registry identity so the pricing layer can resolve a price for it.
+
+def test_intermediates_produced_before_consumed():
+    processes = _load(CONFIG / "aniline.yaml")["processes"]
+    for proc in processes.values():
+        for route_name, route in proc["routes"].items():
+            produced = {s["main_output"]: s["order"] for s in route["steps"]}
+            for step in route["steps"]:
+                for inp in step["inputs"]:
+                    cid = inp["chemical_id"]
+                    if cid in produced:  # intermediate
+                        assert produced[cid] < step["order"], (
+                            f"{route_name}: '{cid}' consumed at order {step['order']} "
+                            f"but produced at order {produced[cid]} (must be earlier)"
+                        )
+
+
+def test_purchased_feedstocks_exist_in_registry():
+    registry = set(_load(CONFIG / "chemical_registry.yaml")["chemicals"])
+    processes = _load(CONFIG / "aniline.yaml")["processes"]
+    for proc in processes.values():
+        for route_name, route in proc["routes"].items():
+            produced = {s["main_output"] for s in route["steps"]}
+            for step in route["steps"]:
+                for inp in step["inputs"]:
+                    cid = inp["chemical_id"]
+                    if cid not in produced:  # purchased feedstock
+                        assert cid in registry, (
+                            f"{route_name}: feedstock '{cid}' not in registry"
+                        )
