@@ -9,11 +9,11 @@ chemicals:
     - 2902.20.00
     status: feedstock_only
   nitrobenzene:
-    cas: 100-00-5
-    pubchem_cid: 7474
-    iupac_name: 1-chloro-4-nitrobenzene
-    molecular_formula: C6H4ClNO2
-    molecular_weight_g_per_mol: 157.55
+    cas: 98-95-3
+    pubchem_cid: 7416
+    iupac_name: nitrobenzene
+    molecular_formula: C6H5NO2
+    molecular_weight_g_per_mol: 123.11
     hts_codes:
     - 2904.20.10
     status: feedstock_only
@@ -26,3 +26,29 @@ chemicals:
     hts_codes:
     - 2921.41.20
     status: active
+  nitric_acid:
+    cas: 7697-37-2
+    pubchem_cid: 944
+    iupac_name: nitric acid
+    molecular_formula: HNO3
+    molecular_weight_g_per_mol: 63.013
+    hts_codes:
+    - 2808.00.00
+    status: feedstock_only
+  hydrogen:
+    cas: 1333-74-0
+    pubchem_cid: 783
+    iupac_name: molecular hydrogen
+    molecular_formula: H2
+    molecular_weight_g_per_mol: 2.016
+    hts_codes:
+    - 2804.10.00
+    status: feedstock_only
+  water:
+    cas: 7732-18-5
+    pubchem_cid: 962
+    iupac_name: oxidane
+    molecular_formula: H2O
+    molecular_weight_g_per_mol: 18.015
+    hts_codes: []
+    status: feedstock_only
