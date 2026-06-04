@@ -26,8 +26,11 @@ jobs:
         run: python pipeline/eia.py
         env:
           EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
-      # Make the pulled CSV downloadable from the run page so the data can be
-      # inspected. (On the runner this file is otherwise ephemeral.)
+      # The pipeline writes data/market.db (the real store). Project the
+      # utility_observations table to CSV so the artifact is readable inline on
+      # the run page without downloading and opening a binary .db.
+      - name: Export utility_observations to CSV
+        run: python -c "import sys; sys.path.insert(0, 'pipeline'); import storage; storage.dump_csv('utility_observations', 'data/utility_observations.csv')"
       - name: Upload pulled data
         uses: actions/upload-artifact@v4
         with:
