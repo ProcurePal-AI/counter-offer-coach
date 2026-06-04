@@ -1,0 +1,115 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1780609481720,
+  "projectRoot": "c:\\Users\\insun\\OneDrive\\Desktop\\1TCC\\code\\counter-offer-coach",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pytest",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "config": {
+      "path": "config",
+      "purpose": "Configuration files",
+      "fileCount": 2,
+      "lastAccessed": 1780609481664,
+      "keyFiles": [
+        "aniline.yaml",
+        "chemical_registry.yaml"
+      ]
+    },
+    "dashboard": {
+      "path": "dashboard",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1780609481664,
+      "keyFiles": []
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 1,
+      "lastAccessed": 1780609481665,
+      "keyFiles": [
+        "utility_observations.csv"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1780609481666,
+      "keyFiles": []
+    },
+    "engine": {
+      "path": "engine",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1780609481667,
+      "keyFiles": []
+    },
+    "pipeline": {
+      "path": "pipeline",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1780609481667,
+      "keyFiles": [
+        "eia.py",
+        "pubchem.py"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 1,
+      "lastAccessed": 1780609481667,
+      "keyFiles": [
+        "test_smoke.py"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}
