@@ -45,7 +45,7 @@ DEFAULT_MONTHS = 24
 # carries the region (per-state series); a literal `region` is used when the series
 # is a single national number.
 SERIES = {
-    "electricity_industrial": {
+    "electricity_industrial": {"unit": "kWh",
         "route": "electricity/retail-sales",
         "facets": {"sectorid": ["IND"]},
         "data_column": "price",       # EIA reports cents/kWh
@@ -53,7 +53,7 @@ SERIES = {
         "region_field": "stateid",
         "scale": 0.01,                # cents -> USD per kWh
     },
-    "natural_gas_henry_hub": {
+    "natural_gas_henry_hub": {"unit": "MMBtu",
         "route": "natural-gas/pri/fut",
         # RNGWHHD is the Henry Hub spot series ($/MMBtu); frequency=monthly returns
         # its monthly average. (The old monthly-only id RNGWHHM is retired in v2.)
@@ -63,7 +63,7 @@ SERIES = {
         "region": "US",
         "scale": 1.0,
     },
-    "natural_gas_industrial": {
+    "natural_gas_industrial": {"unit": "Mcf",
         "route": "natural-gas/pri/sum",
         "facets": {"series": ["N3035US3"]},  # US industrial price, monthly, $/Mcf
         "data_column": "value",
@@ -114,6 +114,7 @@ def fetch_series(api_key: str, utility: str, months: int = DEFAULT_MONTHS) -> li
             {
                 "utility": utility,
                 "source": SOURCE,
+                "unit": spec["unit"]
                 "region": region,
                 "period": rec["period"],  # EIA monthly periods are already YYYY-MM
                 "price_usd_per_unit": round(float(raw) * spec["scale"], 6),
@@ -143,7 +144,7 @@ def write_utility_observations(rows: list[dict]) -> None:
     """
     out_path = Path(__file__).resolve().parents[1] / "data" / "utility_observations.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["utility", "source", "region", "period", "price_usd_per_unit", "fetched_at"]
+    fieldnames = ["utility", "source", "unit", "region", "period", "price_usd_per_unit", "fetched_at"]
     write_header = not out_path.exists()
     with out_path.open("a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
