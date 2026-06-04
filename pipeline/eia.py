@@ -114,7 +114,7 @@ def fetch_series(api_key: str, utility: str, months: int = DEFAULT_MONTHS) -> li
             {
                 "utility": utility,
                 "source": SOURCE,
-                "unit": spec["unit"]
+                "unit": spec["unit"],
                 "region": region,
                 "period": rec["period"],  # EIA monthly periods are already YYYY-MM
                 "price_usd_per_unit": round(float(raw) * spec["scale"], 6),
