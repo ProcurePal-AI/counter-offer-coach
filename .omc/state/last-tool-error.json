@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd \\\"c:\\\\Users\\\\insun\\\\OneDrive\\\\Desktop\\\\1TCC\\\\code\\\\counter-offer-coach\\\" && python -c \\\"\\nimport yaml\\nd=yaml.safe_load(open('config/aniline.yaml',encoding='utf-8'))\\nsteps=d['processes...",
-  "error": "Exit code 1\nTraceback (most recent call last):\r\n  File \"<string>\", line 3, in <module>\r\n  File \"C:\\Users\\insun\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\yaml\\__init__.py\", line 125, in safe_load\r\n    return load(stream, SafeLoader)\r\n           ^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"C:\\Users\\insun\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\yaml\\__init__.py\", line 81, in load\r\n    return loader.get_single_data()\r\n           ^^^^^^^^^^^^^^^^^^^^^^^^\r\n  File \"C:\\Users\\insun...",
-  "timestamp": "2026-06-02T22:46:09.952Z",
-  "retry_count": 1
-}

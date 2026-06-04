@@ -88,6 +88,13 @@ def main() -> int:
     with out_path.open("w") as f:
         yaml.safe_dump(registry, f, sort_keys=False, default_flow_style=False)
     print(f"Wrote {out_path}")
+
+    # Persist the same reference identity into the chemicals registry table.
+    # PubChem is one-time identity, not a time series, so this upserts on name.
+    import storage
+
+    n = storage.write_chemicals(registry)
+    print(f"Upserted {n} rows -> {storage.DB_PATH} (chemicals)")
     return 0
 
 

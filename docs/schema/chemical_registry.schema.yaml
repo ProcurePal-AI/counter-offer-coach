@@ -8,6 +8,7 @@ chemicals:
       - cas
       - pubchem_cid
       - iupac_name
+      - molecular_formula
       - molecular_weight_g_per_mol
       - hts_codes
       - status
@@ -20,6 +21,8 @@ chemicals:
         minimum: 1
       iupac_name:
         type: string
+      molecular_formula:
+        type: string                              # e.g. C6H7N; from PubChem PUG-REST
       molecular_weight_g_per_mol:
         type: number
         minimum: 0.1

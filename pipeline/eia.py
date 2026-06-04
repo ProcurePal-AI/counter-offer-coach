@@ -17,19 +17,17 @@ so the calibration layer can read evidence by source without code changes:
 
 Storage is intentionally decoupled: this module produces normalized rows and hands
 them to `write_utility_observations()`. That function is a thin seam owned by the
-storage layer (Step 1). Until the DB lands it falls back to a CSV in data/, so the
-connector is fully testable in isolation.
+storage layer (pipeline/storage.py), which appends the rows to the
+`utility_observations` SQLite table.
 
 Run:  python pipeline/eia.py
 """
 
 from __future__ import annotations
 
-import csv
 import os
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 import requests
 
@@ -135,23 +133,16 @@ def pull_all(api_key: str, months: int = DEFAULT_MONTHS) -> list[dict]:
 
 
 def write_utility_observations(rows: list[dict]) -> None:
-    """Persist normalized rows.
+    """Persist normalized rows into the `utility_observations` SQLite table.
 
-    Storage seam owned by the Step 1 storage layer. Replace the body with an INSERT
-    into the `utility_prices` table once it exists; the row dict keys already match
-    the table's columns. Until then we append to a git-ignored CSV so the connector
-    is verifiable end to end on its own.
+    Storage seam owned by the Step 1 storage layer (pipeline/storage.py). The row
+    dict keys already match the table's columns, so this is a straight append-only
+    INSERT -- no cleaning or dedup here (a calibration-phase concern).
     """
-    out_path = Path(__file__).resolve().parents[1] / "data" / "utility_observations.csv"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["utility", "source", "unit", "region", "period", "price_usd_per_unit", "fetched_at"]
-    write_header = not out_path.exists()
-    with out_path.open("a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if write_header:
-            writer.writeheader()
-        writer.writerows(rows)
-    print(f"Wrote {len(rows)} rows -> {out_path}")
+    import storage  # local import: keeps the connector importable without a DB
+
+    inserted = storage.write_utility_observations(rows)
+    print(f"Wrote {inserted} rows -> {storage.DB_PATH} (utility_observations)")
 
 
 def main() -> int:
