@@ -1,26 +1,3 @@
-Sources
--------
-* Mineral Commodity Summaries (MCS) — published each February, covers prior year.
-  URL pattern: https://pubs.usgs.gov/periodicals/mcs{pub_year}/mcs{pub_year}-nitrogen.pdf
-  where pub_year = data_year + 1.
-
-* Minerals Yearbook (MYB) — published ~18 months after data year, more granular.
-  URL pattern: https://minerals.usgs.gov/minerals/pubs/commodity/nitrogen/myb1-{data_year}-nitro.pdf
-
-Parse strategies (tried in order)
-----------------------------------
-1. **table**   — pdfplumber table extraction; reliable when PDF has proper table structure.
-2. **regex**   — scan raw page text for the price row + a column-aligned year header.
-3. **narrative** — scan sentences for explicit "$NNN per short ton" mentions.
-
-Public API
-----------
-* ``fetch_ammonia_price(data_year, *, pdf_path=None, prefer_myb=False)``
-* ``ingest_ammonia_prices(start_year, end_year, *, db_path, overwrite=False)``
-* ``AmmoniaPriceRecord`` — named dataclass
-* ``USGSParseError`` — raised on unrecoverable failure
-"""
-
 from __future__ import annotations
 
 import io
