@@ -11,4 +11,5 @@ data/*.db
 .DS_Store
 .pytest_cache/
 .ruff_cache/
-.omc/ 
+.omc/
+*.egg-info/
