@@ -1,6 +1,13 @@
 import json
+import sys
+from pathlib import Path
 
-from pipeline import storage, usitc
+# pipeline/ is on sys.path when the connectors run as scripts; mirror that here.
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "pipeline"))
+
+import storage  # noqa: E402
+import usitc  # noqa: E402
 
 
 def _sample_response():
