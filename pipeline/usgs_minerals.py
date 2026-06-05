@@ -13,6 +13,8 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+_SHORT_TON_TO_METRIC_TON = 0.90718474
+
 # Public exceptions & data types
 class USGSParseError(RuntimeError):
     """Raised when price data cannot be extracted from a USGS PDF."""
@@ -357,25 +359,26 @@ def ingest_ammonia_prices(
             logger.error("Failed to fetch %s: %s", year, exc)
             continue
 
-        if overwrite:
-            conn.execute(
-                "INSERT OR REPLACE INTO ammonia_price_usgs "
-                "(data_year, price_usd_per_short_ton, source_url, parse_strategy, notes) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (rec.data_year, rec.price_usd_per_short_ton,
-                 rec.source_url, rec.parse_strategy, rec.notes),)
-        else:
-            conn.execute(
-                "INSERT OR IGNORE INTO ammonia_price_usgs "
-                "(data_year, price_usd_per_short_ton, source_url, parse_strategy, notes) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (rec.data_year, rec.price_usd_per_short_ton,
-                 rec.source_url, rec.parse_strategy, rec.notes),)
-        conn.commit()
+      sql = """
+        INSERT OR REPLACE INTO ammonia_prices 
+        (data_year, price_usd_per_metric_ton, source_url, parse_strategy, notes) 
+        VALUES (?, ?, ?, ?, ?)
+        """ if overwrite else """
+        INSERT OR IGNORE INTO ammonia_prices 
+        (data_year, price_usd_per_metric_ton, source_url, parse_strategy, notes) 
+        VALUES (?, ?, ?, ?, ?)
+        """
+        
+        db_conn.execute(
+            sql,
+            (rec.data_year, rec.price_usd_per_metric_ton,
+             rec.source_url, rec.parse_strategy, rec.notes),
+        )
+        db_conn.commit()
         records.append(rec)
         logger.info(
-            "Ingested %s: $%.0f/st via %s", year,
-            rec.price_usd_per_short_ton, rec.parse_strategy)
+            "Ingested %s: $%.2f/t via %s", year,
+            rec.price_usd_per_metric_ton, rec.parse_strategy
+        )
 
-    conn.close()
     return records
