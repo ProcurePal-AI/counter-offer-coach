@@ -7,7 +7,7 @@ their normalized rows to.
 
 Three tables, columns taken verbatim from the schema contracts:
   * utility_observations  <- docs/schema/market_observations.schema.yaml   (eia.py)
-  * price_observations    <- docs/schema/market_observations.schema.yaml   (no feed yet)
+  * price_observations    <- docs/schema/market_observations.schema.yaml   (usitc.py)
   * chemicals             <- docs/schema/chemical_registry.schema.yaml      (pubchem.py)
 
 Append-only tables (the two *_observations) take raw INSERTs -- no dedup, no
@@ -25,7 +25,7 @@ import sqlite3
 from pathlib import Path
 
 # DB lives under data/, which .gitignore already excludes. The data is fully
-# re-pullable from the public EIA / PubChem APIs, so it is never committed.
+# re-pullable from public APIs, so it is never committed.
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "market.db"
 
 # --- DDL -------------------------------------------------------------------
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS price_observations (
     source           TEXT    NOT NULL,
     region           TEXT    NOT NULL,
     period           TEXT    NOT NULL,
-    price_usd_per_kg REAL    NOT NULL,
+    price_usd_per_kg REAL,
     fetched_at       TEXT    NOT NULL,
     hts_code         TEXT,                 -- nullable: USITC only
     grade            TEXT,                 -- nullable: ICIS only
@@ -73,12 +73,36 @@ CREATE TABLE IF NOT EXISTS chemicals (
 
 # Column order per table -- the INSERT/verification helpers and the schema-match
 # test all read these, so the column contract lives in one place.
-UTILITY_COLUMNS = ["utility", "source", "unit", "region", "period",
-                   "price_usd_per_unit", "fetched_at"]
-PRICE_COLUMNS = ["chemical_id", "source", "region", "period", "price_usd_per_kg",
-                 "fetched_at", "hts_code", "grade", "assessment_type"]
-CHEMICAL_COLUMNS = ["name", "cas", "pubchem_cid", "iupac_name", "molecular_formula",
-                    "molecular_weight_g_per_mol", "hts_codes", "status"]
+UTILITY_COLUMNS = [
+    "utility",
+    "source",
+    "unit",
+    "region",
+    "period",
+    "price_usd_per_unit",
+    "fetched_at",
+]
+PRICE_COLUMNS = [
+    "chemical_id",
+    "source",
+    "region",
+    "period",
+    "price_usd_per_kg",
+    "fetched_at",
+    "hts_code",
+    "grade",
+    "assessment_type",
+]
+CHEMICAL_COLUMNS = [
+    "name",
+    "cas",
+    "pubchem_cid",
+    "iupac_name",
+    "molecular_formula",
+    "molecular_weight_g_per_mol",
+    "hts_codes",
+    "status",
+]
 
 
 def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
@@ -97,8 +121,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _insert_rows(conn: sqlite3.Connection, table: str, columns: list[str],
-                 rows: list[dict]) -> int:
+def _insert_rows(conn: sqlite3.Connection, table: str, columns: list[str], rows: list[dict]) -> int:
     """Append `rows` to `table`, pulling values by column name. Raw insert."""
     if not rows:
         return 0
@@ -121,12 +144,24 @@ def write_utility_observations(rows: list[dict], conn: sqlite3.Connection | None
             conn.close()
 
 
-def write_price_observations(rows: list[dict], conn: sqlite3.Connection | None = None) -> int:
+def write_price_observations(
+    rows: list[dict],
+    conn: sqlite3.Connection | None = None,
+    dry_run: bool = False,
+) -> int:
     """Append normalized price rows to `price_observations`. Append-only.
 
-    No connector produces these yet (USITC/ICIS feed not in the repo); the table
-    and writer exist so a future feed plugs in without a migration.
+    `dry_run=True` preserves connector validation mode: normalize and print
+    counts without mutating the local SQLite cache.
     """
+    if dry_run:
+        null_count = sum(row.get("price_usd_per_kg") is None for row in rows)
+        print(
+            f"Dry run: {len(rows)} price observations normalized "
+            f"({null_count} with NULL unit value); storage write skipped."
+        )
+        return 0
+
     own = conn is None
     conn = conn or connect()
     try:
@@ -155,8 +190,7 @@ def write_chemicals(registry: dict, conn: sqlite3.Connection | None = None) -> i
     try:
         placeholders = ", ".join("?" for _ in CHEMICAL_COLUMNS)
         col_list = ", ".join(CHEMICAL_COLUMNS)
-        sql = (f"INSERT OR REPLACE INTO chemicals ({col_list}) "
-               f"VALUES ({placeholders})")
+        sql = f"INSERT OR REPLACE INTO chemicals ({col_list}) " f"VALUES ({placeholders})"
         conn.executemany(sql, [[r.get(c) for c in CHEMICAL_COLUMNS] for r in rows])
         conn.commit()
         return len(rows)
@@ -165,8 +199,7 @@ def write_chemicals(registry: dict, conn: sqlite3.Connection | None = None) -> i
             conn.close()
 
 
-def dump_csv(table: str, out_path: Path | str,
-             conn: sqlite3.Connection | None = None) -> int:
+def dump_csv(table: str, out_path: Path | str, conn: sqlite3.Connection | None = None) -> int:
     """Export an entire table to CSV (header + all rows). Returns the row count.
 
     Used by CI to attach a human-readable artifact: the SQLite DB stays the real
