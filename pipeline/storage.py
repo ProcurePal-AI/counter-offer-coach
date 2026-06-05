@@ -1,9 +1,9 @@
 """
-storage.py -- SQLite store for the should-cost demo pipeline.
+storage.py -- PostgreSQL (Neon) store for the should-cost demo pipeline.
 
-Single-file, zero external setup: stdlib `sqlite3` only, one DB file at
-data/market.db (git-ignored). This is the storage seam the connectors hand
-their normalized rows to.
+Connection is read from the DATABASE_URL environment variable (a Neon
+`postgresql://...` connection string), loaded from the project-root .env via
+python-dotenv. psycopg2 is the driver.
 
 Three tables, columns taken verbatim from the schema contracts:
   * utility_observations  <- docs/schema/market_observations.schema.yaml   (eia.py)
@@ -12,62 +12,72 @@ Three tables, columns taken verbatim from the schema contracts:
 
 Append-only tables (the two *_observations) take raw INSERTs -- no dedup, no
 filtering, no outlier removal. Cleaning is a downstream/calibration concern.
-`chemicals` is reference identity (one row per substance), so it upserts on name.
+`chemicals` is reference identity (one row per substance), so it upserts on name
+via ON CONFLICT.
 
-Run directly to (re)create the DB and print a verification sample:
+Run directly to create the tables (idempotent) and print a verification sample:
     python pipeline/storage.py
 """
 
 from __future__ import annotations
 
 import json
-import sqlite3
+import os
 from pathlib import Path
 
-# DB lives under data/, which .gitignore already excludes. The data is fully
-# re-pullable from public APIs, so it is never committed.
-DB_PATH = Path(__file__).resolve().parents[1] / "data" / "market.db"
+import psycopg2
+from dotenv import load_dotenv
+from psycopg2.extensions import connection as PgConnection
+
+# Load DATABASE_URL from the project-root .env regardless of the current working
+# directory (this file lives in pipeline/, .env lives one level up).
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
+# Backwards-compatible label: eia.py / pubchem.py print `storage.DB_PATH` in their
+# log lines. We must NOT print the real DATABASE_URL (it contains the password), so
+# this is just a safe human-readable target name.
+DB_PATH = "PostgreSQL (Neon)"
 
 # --- DDL -------------------------------------------------------------------
-# Columns mirror docs/schema/*.yaml EXACTLY. The only additions are structural:
+# Columns mirror docs/schema/*.yaml EXACTLY. The only addition is structural:
 #   - chemicals.name: the registry is a YAML map keyed by chemical name, so the
 #     key has to become a column (it is the natural primary key).
-# Array fields (chemicals.hts_codes) are stored as JSON text -- SQLite has no
-# array type. NOT NULL mirrors each schema's `required` list; schema-optional
-# and nullable fields stay nullable.
+# Array fields (chemicals.hts_codes) are stored as JSON text -- kept as TEXT for
+# parity with the SQLite version (Postgres JSONB is a possible future upgrade).
+# NOT NULL mirrors each schema's `required` list; nullable fields stay nullable.
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS utility_observations (
-    utility            TEXT    NOT NULL,
-    source             TEXT    NOT NULL,
-    unit               TEXT    NOT NULL,
-    region             TEXT    NOT NULL,
-    period             TEXT    NOT NULL,
-    price_usd_per_unit REAL    NOT NULL,
-    fetched_at         TEXT    NOT NULL
+    utility            TEXT             NOT NULL,
+    source             TEXT             NOT NULL,
+    unit               TEXT             NOT NULL,
+    region             TEXT             NOT NULL,
+    period             TEXT             NOT NULL,
+    price_usd_per_unit DOUBLE PRECISION NOT NULL,
+    fetched_at         TEXT             NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS price_observations (
-    chemical_id      TEXT    NOT NULL,
-    source           TEXT    NOT NULL,
-    region           TEXT    NOT NULL,
-    period           TEXT    NOT NULL,
-    price_usd_per_kg REAL,
-    fetched_at       TEXT    NOT NULL,
+    chemical_id      TEXT             NOT NULL,
+    source           TEXT             NOT NULL,
+    region           TEXT             NOT NULL,
+    period           TEXT             NOT NULL,
+    price_usd_per_kg DOUBLE PRECISION,
+    fetched_at       TEXT             NOT NULL,
     hts_code         TEXT,                 -- nullable: USITC only
     grade            TEXT,                 -- nullable: ICIS only
     assessment_type  TEXT                  -- nullable: 'spot' | 'contract' | NULL
 );
 
 CREATE TABLE IF NOT EXISTS chemicals (
-    name                       TEXT    PRIMARY KEY,   -- registry map key
-    cas                        TEXT,                  -- nullable: PubChem may have no CAS synonym
-    pubchem_cid                INTEGER NOT NULL,
-    iupac_name                 TEXT    NOT NULL,
-    molecular_formula          TEXT    NOT NULL,
-    molecular_weight_g_per_mol REAL    NOT NULL,
-    hts_codes                  TEXT    NOT NULL,       -- JSON array of HTS code strings
-    status                     TEXT    NOT NULL
+    name                       TEXT             PRIMARY KEY,   -- registry map key
+    cas                        TEXT,                           -- nullable: PubChem may have no CAS synonym
+    pubchem_cid                INTEGER          NOT NULL,
+    iupac_name                 TEXT             NOT NULL,
+    molecular_formula          TEXT             NOT NULL,
+    molecular_weight_g_per_mol DOUBLE PRECISION NOT NULL,
+    hts_codes                  TEXT             NOT NULL,       -- JSON array of HTS code strings
+    status                     TEXT             NOT NULL
 );
 """
 
@@ -105,40 +115,55 @@ CHEMICAL_COLUMNS = [
 ]
 
 
-def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
-    """Open (creating the parent dir if needed) and ensure the schema exists."""
-    db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+def _dsn() -> str:
+    """Return the Neon connection string, or fail with a clear message."""
+    try:
+        return os.environ["DATABASE_URL"]
+    except KeyError:
+        raise RuntimeError(
+            "DATABASE_URL is not set. Add it to the project-root .env file, e.g.\n"
+            "  DATABASE_URL=postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require"
+        ) from None
+
+
+def connect(dsn: str | None = None) -> PgConnection:
+    """Open a PostgreSQL connection and ensure the schema exists.
+
+    `dsn` overrides DATABASE_URL (useful for pointing at a separate test database).
+    """
+    conn = psycopg2.connect(dsn or _dsn())
     init_db(conn)
     return conn
 
 
-def init_db(conn: sqlite3.Connection) -> None:
-    """Create all tables if they do not already exist."""
-    conn.executescript(SCHEMA_SQL)
+def init_db(conn: PgConnection) -> None:
+    """Create all tables if they do not already exist (idempotent)."""
+    with conn.cursor() as cur:
+        cur.execute(SCHEMA_SQL)
     conn.commit()
 
 
-def _insert_rows(conn: sqlite3.Connection, table: str, columns: list[str], rows: list[dict]) -> int:
+def _insert_rows(conn: PgConnection, table: str, columns: list[str], rows: list[dict]) -> int:
     """Append `rows` to `table`, pulling values by column name. Raw insert."""
     if not rows:
         return 0
-    placeholders = ", ".join("?" for _ in columns)
+    placeholders = ", ".join(["%s"] * len(columns))
     col_list = ", ".join(columns)
     sql = f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})"
-    conn.executemany(sql, [[r.get(c) for c in columns] for r in rows])
-    conn.commit()
+    with conn.cursor() as cur:
+        cur.executemany(sql, [[r.get(c) for c in columns] for r in rows])
     return len(rows)
 
 
-def write_utility_observations(rows: list[dict], conn: sqlite3.Connection | None = None) -> int:
+def write_utility_observations(rows: list[dict], conn: PgConnection | None = None) -> int:
     """Append normalized EIA utility rows to `utility_observations`. Append-only."""
     own = conn is None
     conn = conn or connect()
     try:
-        return _insert_rows(conn, "utility_observations", UTILITY_COLUMNS, rows)
+        n = _insert_rows(conn, "utility_observations", UTILITY_COLUMNS, rows)
+        if own:
+            conn.commit()
+        return n
     finally:
         if own:
             conn.close()
@@ -146,13 +171,13 @@ def write_utility_observations(rows: list[dict], conn: sqlite3.Connection | None
 
 def write_price_observations(
     rows: list[dict],
-    conn: sqlite3.Connection | None = None,
+    conn: PgConnection | None = None,
     dry_run: bool = False,
 ) -> int:
     """Append normalized price rows to `price_observations`. Append-only.
 
     `dry_run=True` preserves connector validation mode: normalize and print
-    counts without mutating the local SQLite cache.
+    counts without mutating the store.
     """
     if dry_run:
         null_count = sum(row.get("price_usd_per_kg") is None for row in rows)
@@ -165,18 +190,21 @@ def write_price_observations(
     own = conn is None
     conn = conn or connect()
     try:
-        return _insert_rows(conn, "price_observations", PRICE_COLUMNS, rows)
+        n = _insert_rows(conn, "price_observations", PRICE_COLUMNS, rows)
+        if own:
+            conn.commit()
+        return n
     finally:
         if own:
             conn.close()
 
 
-def write_chemicals(registry: dict, conn: sqlite3.Connection | None = None) -> int:
+def write_chemicals(registry: dict, conn: PgConnection | None = None) -> int:
     """Upsert PubChem reference identity into `chemicals`.
 
     `registry` is the {"chemicals": {name: {...}}} dict pubchem.build_registry()
-    returns. Reference identity, not a time series -> upsert on name (re-running
-    the PubChem pull refreshes in place instead of duplicating).
+    returns. Reference identity, not a time series -> upsert on name via
+    ON CONFLICT (re-running the PubChem pull refreshes in place, no duplicates).
     """
     own = conn is None
     conn = conn or connect()
@@ -187,23 +215,31 @@ def write_chemicals(registry: dict, conn: sqlite3.Connection | None = None) -> i
         # hts_codes is a list in the registry; persist as JSON text.
         row["hts_codes"] = json.dumps(rec.get("hts_codes", []))
         rows.append(row)
+    placeholders = ", ".join(["%s"] * len(CHEMICAL_COLUMNS))
+    col_list = ", ".join(CHEMICAL_COLUMNS)
+    update_clause = ", ".join(
+        f"{c} = EXCLUDED.{c}" for c in CHEMICAL_COLUMNS if c != "name"
+    )
+    sql = (
+        f"INSERT INTO chemicals ({col_list}) VALUES ({placeholders}) "
+        f"ON CONFLICT (name) DO UPDATE SET {update_clause}"
+    )
     try:
-        placeholders = ", ".join("?" for _ in CHEMICAL_COLUMNS)
-        col_list = ", ".join(CHEMICAL_COLUMNS)
-        sql = f"INSERT OR REPLACE INTO chemicals ({col_list}) " f"VALUES ({placeholders})"
-        conn.executemany(sql, [[r.get(c) for c in CHEMICAL_COLUMNS] for r in rows])
-        conn.commit()
+        with conn.cursor() as cur:
+            cur.executemany(sql, [[r.get(c) for c in CHEMICAL_COLUMNS] for r in rows])
+        if own:
+            conn.commit()
         return len(rows)
     finally:
         if own:
             conn.close()
 
 
-def dump_csv(table: str, out_path: Path | str, conn: sqlite3.Connection | None = None) -> int:
+def dump_csv(table: str, out_path: Path | str, conn: PgConnection | None = None) -> int:
     """Export an entire table to CSV (header + all rows). Returns the row count.
 
-    Used by CI to attach a human-readable artifact: the SQLite DB stays the real
-    store, this is just a readable projection of one table for the run page.
+    Used by CI to attach a human-readable artifact -- a readable projection of one
+    table for the run page.
     """
     import csv
 
@@ -212,12 +248,14 @@ def dump_csv(table: str, out_path: Path | str, conn: sqlite3.Connection | None =
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        rows = conn.execute(f"SELECT * FROM {table}").fetchall()
-        columns = [d[0] for d in conn.execute(f"SELECT * FROM {table} LIMIT 0").description]
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT * FROM {table}")
+            columns = [d[0] for d in cur.description]
+            rows = cur.fetchall()  # list of tuples in column order
         with out_path.open("w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(columns)
-            writer.writerows([[row[c] for c in columns] for row in rows])
+            writer.writerows(rows)
         print(f"Exported {len(rows)} rows from {table} -> {out_path}")
         return len(rows)
     finally:
@@ -225,19 +263,23 @@ def dump_csv(table: str, out_path: Path | str, conn: sqlite3.Connection | None =
             conn.close()
 
 
-def verify(conn: sqlite3.Connection | None = None, limit: int = 5) -> None:
+def verify(conn: PgConnection | None = None, limit: int = 5) -> None:
     """Print row counts and a small sample from each table for confirmation."""
     own = conn is None
     conn = conn or connect()
     try:
-        for table in ("utility_observations", "price_observations", "chemicals"):
-            count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            print(f"\n== {table}: {count} rows ==")
-            sample = conn.execute(f"SELECT * FROM {table} LIMIT {limit}").fetchall()
-            for row in sample:
-                print("  " + " | ".join(f"{k}={row[k]}" for k in row.keys()))
-            if not sample:
-                print("  (empty)")
+        with conn.cursor() as cur:
+            for table in ("utility_observations", "price_observations", "chemicals"):
+                cur.execute(f"SELECT COUNT(*) FROM {table}")
+                count = cur.fetchone()[0]
+                print(f"\n== {table}: {count} rows ==")
+                cur.execute(f"SELECT * FROM {table} LIMIT %s", (limit,))
+                cols = [d[0] for d in cur.description]
+                sample = cur.fetchall()
+                for row in sample:
+                    print("  " + " | ".join(f"{c}={v}" for c, v in zip(cols, row)))
+                if not sample:
+                    print("  (empty)")
     finally:
         if own:
             conn.close()
@@ -245,7 +287,7 @@ def verify(conn: sqlite3.Connection | None = None, limit: int = 5) -> None:
 
 def main() -> int:
     conn = connect()
-    print(f"Initialized SQLite store at {DB_PATH}")
+    print(f"Initialized {DB_PATH} store (tables created if missing)")
     verify(conn)
     conn.close()
     return 0

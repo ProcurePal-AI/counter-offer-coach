@@ -247,38 +247,36 @@ def test_storage_dry_run_does_not_touch_database_or_csv(capsys):
     assert "storage write skipped" in capsys.readouterr().out
 
 
-def test_storage_writes_price_observations_to_sqlite(tmp_path):
-    conn = storage.connect(tmp_path / "market.db")
-    try:
-        rows = [
-            {
-                "chemical_id": "benzene",
-                "source": "USITC",
-                "hts_code": "29022000",
-                "region": "US_IMPORTS_ALL_ORIGINS",
-                "period": "2026-01",
-                "price_usd_per_kg": None,
-                "fetched_at": "2026-06-02T00:00:00+00:00",
-            },
-            {
-                "chemical_id": "aniline",
-                "source": "USITC",
-                "hts_code": "29214120",
-                "region": "US_IMPORTS_ALL_ORIGINS",
-                "period": "2026-01",
-                "price_usd_per_kg": 5.0,
-                "fetched_at": "2026-06-02T00:00:00+00:00",
-            },
-        ]
+def test_storage_writes_price_observations_to_postgres(db_conn):
+    rows = [
+        {
+            "chemical_id": "benzene",
+            "source": "USITC",
+            "hts_code": "29022000",
+            "region": "US_IMPORTS_ALL_ORIGINS",
+            "period": "2026-01",
+            "price_usd_per_kg": None,
+            "fetched_at": "2026-06-02T00:00:00+00:00",
+        },
+        {
+            "chemical_id": "aniline",
+            "source": "USITC",
+            "hts_code": "29214120",
+            "region": "US_IMPORTS_ALL_ORIGINS",
+            "period": "2026-01",
+            "price_usd_per_kg": 5.0,
+            "fetched_at": "2026-06-02T00:00:00+00:00",
+        },
+    ]
 
-        assert storage.write_price_observations(rows, conn=conn) == 2
-        got = conn.execute(
+    assert storage.write_price_observations(rows, conn=db_conn) == 2
+    with db_conn.cursor() as cur:
+        cur.execute(
             "SELECT chemical_id, hts_code, price_usd_per_kg FROM price_observations "
             "ORDER BY chemical_id"
-        ).fetchall()
-        assert [dict(row) for row in got] == [
-            {"chemical_id": "aniline", "hts_code": "29214120", "price_usd_per_kg": 5.0},
-            {"chemical_id": "benzene", "hts_code": "29022000", "price_usd_per_kg": None},
-        ]
-    finally:
-        conn.close()
+        )
+        got = cur.fetchall()
+    assert got == [
+        ("aniline", "29214120", 5.0),
+        ("benzene", "29022000", None),
+    ]
