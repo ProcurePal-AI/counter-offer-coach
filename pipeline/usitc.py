@@ -10,8 +10,8 @@ schema-aligned dictionaries, then hand rows to a writer seam. Raw DataWeb respon
 are preserved under data/raw/usitc/ for audit/debugging. The data/ directory is
 git-ignored.
 
-Unit values are derived locally as customs value / first unit quantity. Rows with
-missing value, missing quantity, or zero quantity are retained with
+Unit values are derived locally as customs value / first unit quantity in kg.
+Rows with missing value, missing quantity, zero quantity, or unknown units are retained with
 price_usd_per_kg=None; downstream calibration owns outlier, low-volume, and holdout
 logic.
 
@@ -67,6 +67,12 @@ MONTHS = {
     "october": "10",
     "november": "11",
     "december": "12",
+}
+
+# DataWeb reports benzene first-unit quantity as liters. The model calibration
+# expects USD/kg, so convert liters to kg with a fixed liquid-density assumption.
+LITERS_TO_KG = {
+    "benzene": 0.8765,
 }
 
 BASIC_QUERY: dict[str, Any] = {
@@ -294,10 +300,15 @@ def _table_measure(table: dict[str, Any]) -> str | None:
     return None
 
 
-def _is_kg_unit(unit: Any) -> bool:
-    if unit is None:
-        return False
-    return "kilogram" in str(unit).casefold()
+def _quantity_kg(chemical_id: str, quantity: float | None, unit: Any) -> float | None:
+    if quantity is None:
+        return None
+    unit_text = "" if unit is None else str(unit).casefold()
+    if "kilogram" in unit_text:
+        return quantity
+    if "liter" in unit_text and chemical_id in LITERS_TO_KG:
+        return quantity * LITERS_TO_KG[chemical_id]
+    return None
 
 
 def _normalize_wide_tables(
@@ -343,7 +354,11 @@ def _normalize_wide_tables(
     rows = []
     for period in sorted(by_period):
         observation = by_period[period]
-        quantity_kg = observation["quantity"] if _is_kg_unit(observation["quantity_unit"]) else None
+        quantity_kg = _quantity_kg(
+            observation["chemical_id"],
+            observation["quantity"],
+            observation["quantity_unit"],
+        )
         rows.append(
             {
                 "chemical_id": observation["chemical_id"],
