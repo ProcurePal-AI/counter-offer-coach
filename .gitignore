@@ -3,7 +3,9 @@ __pycache__/
 .venv/
 venv/
 .env
-data/
+data/raw/
+data/*.sqlite
+data/*.db
 *.sqlite
 *.db
 .DS_Store
