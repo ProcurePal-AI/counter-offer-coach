@@ -53,5 +53,8 @@ def db_conn():
         conn.rollback()  # discard the test's uncommitted writes / any error state
         with conn.cursor() as cur:
             cur.execute(f"DROP SCHEMA IF EXISTS {TEST_SCHEMA} CASCADE")
+            # Reset search_path before returning the backend to Neon's pooler, so a
+            # later client never inherits a path pointing at this dropped schema.
+            cur.execute("SET search_path TO public")
         conn.commit()
         conn.close()

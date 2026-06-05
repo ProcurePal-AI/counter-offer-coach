@@ -132,6 +132,13 @@ def connect(dsn: str | None = None) -> PgConnection:
     `dsn` overrides DATABASE_URL (useful for pointing at a separate test database).
     """
     conn = psycopg2.connect(dsn or _dsn())
+    # Pin the schema explicitly. Neon's connection pooler can hand back a backend
+    # whose session search_path was left pointing at a now-dropped schema by a
+    # previous client (e.g. an isolated test), which would otherwise make an
+    # unqualified CREATE TABLE fail with "no schema has been selected to create in".
+    with conn.cursor() as cur:
+        cur.execute("SET search_path TO public")
+    conn.commit()
     init_db(conn)
     return conn
 
