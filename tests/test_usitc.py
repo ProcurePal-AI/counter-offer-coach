@@ -192,7 +192,7 @@ def test_normalize_rows_expands_dataweb_monthly_wide_tables():
     ]
 
 
-def test_normalize_rows_retains_non_kg_quantity_with_null_unit_value():
+def test_normalize_rows_converts_benzene_liters_to_kg_unit_value():
     rows = usitc.normalize_rows(
         "benzene",
         "29022000",
@@ -201,7 +201,7 @@ def test_normalize_rows_retains_non_kg_quantity_with_null_unit_value():
     )
 
     assert rows[0]["period"] == "2026-01"
-    assert rows[0]["price_usd_per_kg"] is None
+    assert rows[0]["price_usd_per_kg"] == 5.704507
 
 
 def test_preserve_raw_response_writes_without_overwrite(tmp_path):
