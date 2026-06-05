@@ -14,7 +14,8 @@ price_observations:
       source: { type: string }
       region: { type: string }
       period: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" }   # YYYY-MM
-      price_usd_per_kg: { type: number, minimum: 0.0 }
+      # NULL when customs value / first-unit quantity cannot be calculated safely.
+      price_usd_per_kg: { type: [number, "null"], minimum: 0.0 }
       fetched_at: { type: string, format: "date-time" }
       # Source-specific, nullable. USITC carries hts_code; ICIS carries grade +
       # assessment_type. Adding a feed later populates these, not a migration.

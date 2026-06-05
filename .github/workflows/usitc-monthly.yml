@@ -1,0 +1,36 @@
+name: USITC monthly pull
+
+# Pulls monthly HTS import unit-value signals for benzene and aniline.
+# Requires a DataWeb API token saved as the USITC_API_TOKEN repository secret.
+on:
+  schedule:
+    - cron: "20 6 1 * *"
+  workflow_dispatch:
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Pull USITC import observations
+        run: python pipeline/usitc.py --write
+        env:
+          USITC_API_TOKEN: ${{ secrets.USITC_API_TOKEN }}
+      - name: Export price_observations to CSV
+        run: python -c "import sys; sys.path.insert(0, 'pipeline'); import storage; storage.dump_csv('price_observations', 'data/price_observations.csv')"
+      - name: Upload pulled data
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-observations
+          path: data/price_observations.csv
+          if-no-files-found: error
+      - name: Upload raw USITC responses
+        uses: actions/upload-artifact@v4
+        with:
+          name: usitc-raw-responses
+          path: data/raw/usitc/*.json
+          if-no-files-found: error
