@@ -1,0 +1,15 @@
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    
+    # Target an active, modern data year (e.g., 2025 data, reported in early 2026 MCS)
+    target_db = Path("usgs_prices.db")
+    
+    print("Initializing USGS Ammonia Price Ingestion Pipeline...")
+    extracted_records = ingest_ammonia_prices(
+        start_year=2024, 
+        end_year=2025, 
+        db_path=target_db, 
+        overwrite=True
+    )
+    
+    print(f"\n✨ Ingestion Completed. Successfully recorded {len(extracted_records)} entries.")
