@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 
@@ -71,37 +69,29 @@ def test_missing_utility_price_raises():
 
 
 # --- steam derivation in the resolver --------------------------------------
-def test_steam_derives_from_gas():
-    conn = storage.connect(Path(tempfile.mktemp(suffix=".db")))
-    try:
-        storage.write_utility_observations([{
-            "utility": "natural_gas_henry_hub", "source": "EIA", "unit": "MMBtu",
-            "region": "US", "period": "2025-01", "price_usd_per_unit": 2.50,
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }], conn=conn)
-        steam = prices.steam_price_usd_per_gj(conn, "2025-01", "US")
-        # 2.50 * 0.9478171 / 0.80
-        assert steam == pytest.approx(2.50 * prices.MMBTU_PER_GJ / prices.BOILER_EFFICIENCY, rel=1e-9)
-    finally:
-        conn.close()
+def test_steam_derives_from_gas(db_conn):
+    storage.write_utility_observations([{
+        "utility": "natural_gas_henry_hub", "source": "EIA", "unit": "MMBtu",
+        "region": "US", "period": "2025-01", "price_usd_per_unit": 2.50,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }], conn=db_conn)
+    steam = prices.steam_price_usd_per_gj(db_conn, "2025-01", "US")
+    # 2.50 * 0.9478171 / 0.80
+    assert steam == pytest.approx(2.50 * prices.MMBTU_PER_GJ / prices.BOILER_EFFICIENCY, rel=1e-9)
 
 
 # --- end-to-end through storage + the real resolver ------------------------
-def test_utility_cost_end_to_end():
-    conn = storage.connect(Path(tempfile.mktemp(suffix=".db")))
+def test_utility_cost_end_to_end(db_conn):
     now = datetime.now(timezone.utc).isoformat()
-    try:
-        storage.write_utility_observations([
-            {"utility": "natural_gas_henry_hub", "source": "EIA", "unit": "MMBtu",
-             "region": "US", "period": "2025-01", "price_usd_per_unit": 2.50, "fetched_at": now},
-            {"utility": "electricity_industrial", "source": "EIA", "unit": "kWh",
-             "region": "US", "period": "2025-01", "price_usd_per_unit": 0.075, "fetched_at": now},
-        ], conn=conn)
-        res = utilities.utility_cost(
-            PROC, ROUTE, "2025-01", "US",
-            lambda k, p, r: prices.resolve_utility_price_usd_per_unit(k, p, r, conn),
-        )
-        assert res["utility_cost_usd_per_ton"] > 0
-        assert set(res["by_utility"]) == {"electricity", "steam"}
-    finally:
-        conn.close()
+    storage.write_utility_observations([
+        {"utility": "natural_gas_henry_hub", "source": "EIA", "unit": "MMBtu",
+         "region": "US", "period": "2025-01", "price_usd_per_unit": 2.50, "fetched_at": now},
+        {"utility": "electricity_industrial", "source": "EIA", "unit": "kWh",
+         "region": "US", "period": "2025-01", "price_usd_per_unit": 0.075, "fetched_at": now},
+    ], conn=db_conn)
+    res = utilities.utility_cost(
+        PROC, ROUTE, "2025-01", "US",
+        lambda k, p, r: prices.resolve_utility_price_usd_per_unit(k, p, r, db_conn),
+    )
+    assert res["utility_cost_usd_per_ton"] > 0
+    assert set(res["by_utility"]) == {"electricity", "steam"}

@@ -101,15 +101,9 @@ def test_row_period_matches_schema_pattern():
 
 
 # --- end-to-end bridge: connector -> storage -> resolver -------------------
-def test_bridge_resolver_reads_ammonia():
-    tmp = Path(tempfile.mktemp(suffix=".db"))
-    conn = storage.connect(tmp)
-    try:
-        rec = u._build_record(2023, 600.0, "short ton", "file://x", "table")
-        storage.write_price_observations([u.build_price_row(rec)], conn=conn)
-        per_ton = prices.resolve_price_usd_per_ton("ammonia", "2023-12", "US", conn)
-        # 600 $/short ton == 661.39 $/metric ton
-        assert per_ton == pytest.approx(600.0 / 0.90718474, rel=1e-6)
-    finally:
-        conn.close()
-        tmp.unlink(missing_ok=True)
+def test_bridge_resolver_reads_ammonia(db_conn):
+    rec = u._build_record(2023, 600.0, "short ton", "file://x", "table")
+    storage.write_price_observations([u.build_price_row(rec)], conn=db_conn)
+    per_ton = prices.resolve_price_usd_per_ton("ammonia", "2023-12", "US", db_conn)
+    # 600 $/short ton == 661.39 $/metric ton
+    assert per_ton == pytest.approx(600.0 / 0.90718474, rel=1e-6)
