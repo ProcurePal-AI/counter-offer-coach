@@ -16,7 +16,9 @@ import pytest
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
-# pipeline/ is on sys.path when the connectors run as scripts; mirror that here.
+# Repo root enables `from pipeline import storage` / `from engine import prices`;
+# pipeline/ enables bare `import storage` (how the connectors run as scripts).
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "pipeline"))
 
 # Load DATABASE_URL from the project-root .env for local runs. load_dotenv does not
