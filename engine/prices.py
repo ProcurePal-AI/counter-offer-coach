@@ -12,9 +12,10 @@ Resolution rules, by chemical:
   * Hydrogen: DERIVED from natural gas. Merchant/captive H2 is overwhelmingly
     made by steam methane reforming (SMR), whose cost is gas-dominated, so we
     price the gas feedstock energy: gas $/MMBtu x NG_MMBTU_PER_TON_H2.
-  * Nitric acid: source data (USGS annual ammonia, 2.4) exists in design but the
-    ammonia->nitric-acid cost conversion is not yet sourced, so we raise rather
-    than fabricate a factor.
+  * Nitric acid: DERIVED from ammonia (USGS annual, pipe 2.4, now in
+    price_observations). Ostwald is 1:1 molar NH3->HNO3, so the ammonia feedstock
+    cost is ammonia $/ton x T_NH3_PER_T_HNO3. Like hydrogen, this is a feedstock
+    floor (omits Ostwald conversion), so it sits below market by design.
 
 Everything here is price *derivation*. Cost *assembly* (stoichiometry, yields)
 lives in feedstock.py. Keeping them apart means a better price construction
@@ -42,6 +43,18 @@ import sqlite3
 # Poullikkas 2017), so a floor proxy. (The planning doc's "~12 MMBtu/ton" is
 # physically impossible -- H2 holds ~114 MMBtu/ton -- and is not used.)
 NG_MMBTU_PER_TON_H2 = 165.0
+
+# Ammonia consumed per metric ton of HNO3 (100% basis) via the Ostwald process.
+# Stoichiometry is 1:1 molar (NH3 + 2 O2 -> HNO3 + H2O), so the theoretical mass
+# ratio is MW_NH3 / MW_HNO3 = 17.031 / 63.013 = 0.2703 t NH3 / t HNO3 (exact;
+# the registry MWs). Modern plants run ~94-96% ammonia conversion, so real
+# consumption is ~0.2703 / 0.95 ~= 0.284 t/t. Central 0.284; wide Monte Carlo
+# band ~0.270 (theoretical floor) to ~0.30. This prices the AMMONIA FEEDSTOCK of
+# nitric acid only -- it omits the Ostwald conversion cost (utilities, platinum
+# catalyst, capital), so like NG_MMBTU_PER_TON_H2 it is a feedstock-cost FLOOR
+# that sits below market by design (the gap is the premium the Bayesian phase
+# estimates). Derivation assumption, not a market quote.
+T_NH3_PER_T_HNO3 = 0.284
 
 HENRY_HUB_UTILITY = "natural_gas_henry_hub"  # utility_observations.utility, $/MMBtu
 
@@ -94,14 +107,9 @@ def _price_observation_usd_per_kg(conn: sqlite3.Connection, chemical_id: str,
 
 
 # Chemicals with no usable price path yet -> name the gap instead of guessing.
-_PENDING_FEEDS = {
-    "nitric_acid": (
-        "USGS provides annual ammonia (pipe 2.4, USD/short ton, table "
-        "ammonia_price_usgs), but (a) usgs_minerals.py currently has a syntax "
-        "error and (b) the ammonia->nitric-acid cost conversion (Ostwald, incl. "
-        "processing) is not yet sourced -- not derived (won't guess a factor)"
-    ),
-}
+# (nitric_acid graduated to a derivation below; this stays as the seam for any
+# future feed whose source isn't wired up.)
+_PENDING_FEEDS: dict[str, str] = {}
 
 
 def resolve_price_usd_per_ton(chemical_id: str, period: str, region: str,
@@ -109,6 +117,17 @@ def resolve_price_usd_per_ton(chemical_id: str, period: str, region: str,
     """Per-ton price for `chemical_id`. Raises PriceUnavailable if no source yet."""
     if chemical_id == "hydrogen":
         return gas_price_usd_per_mmbtu(conn, period, region) * NG_MMBTU_PER_TON_H2
+
+    if chemical_id == "nitric_acid":
+        # Feedstock floor: ammonia $/ton x stoichiometric NH3 consumed per ton HNO3.
+        # Needs ammonia in the store (run pipeline/usgs_minerals.py --write).
+        try:
+            ammonia_per_ton = resolve_price_usd_per_ton("ammonia", period, region, conn)
+        except PriceUnavailable as exc:
+            raise PriceUnavailable(
+                f"nitric_acid derives from ammonia, which is unavailable: {exc}"
+            ) from exc
+        return ammonia_per_ton * T_NH3_PER_T_HNO3
 
     if chemical_id in _PENDING_FEEDS:
         raise PriceUnavailable(f"{chemical_id}: {_PENDING_FEEDS[chemical_id]}")
