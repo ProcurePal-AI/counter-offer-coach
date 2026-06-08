@@ -53,13 +53,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import pdfplumber
 import requests
 
 try:
     from pipeline.storage import write_price_observations
 except ModuleNotFoundError:  # Allows `python pipeline/usgs_minerals.py` from repo root.
     from storage import write_price_observations
+
+# NOTE: pdfplumber is imported lazily inside the two functions that open a PDF
+# (_extract_via_table, _extract_full_text). It is a declared dependency, but the
+# pure parsing/conversion logic and the storage->resolver bridge don't need it,
+# so the module (and the whole test suite) imports fine without it installed.
 
 
 # --- Constants -------------------------------------------------------------
@@ -210,6 +214,8 @@ def _prices_from_tables(tables: List[List[List]]) -> Dict[int, Tuple[float, str]
 
 
 def _extract_via_table(pdf_bytes: bytes) -> Dict[int, Tuple[float, str]]:
+    import pdfplumber  # heavy dep; only needed when actually opening a PDF
+
     tables: List[List[List]] = []
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
@@ -240,6 +246,8 @@ def _extract_via_narrative(text: str, data_year: int) -> Dict[int, Tuple[float, 
 
 
 def _extract_full_text(pdf_bytes: bytes) -> str:
+    import pdfplumber  # heavy dep; only needed when actually opening a PDF
+
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         return "\n".join((page.extract_text() or "") for page in pdf.pages)
 
