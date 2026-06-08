@@ -255,7 +255,7 @@ def _find_value(row: dict[str, Any], patterns: tuple[str, ...]) -> Any:
 def _number(value: Any) -> float | None:
     if value is None:
         return None
-    if isinstance(value, int | float):
+    if isinstance(value, (int, float)):
         return float(value)
     cleaned = re.sub(r"[^0-9.\-]", "", str(value))
     if cleaned in {"", "-", "."}:
