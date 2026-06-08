@@ -508,7 +508,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--write",
         action="store_false",
         dest="dry_run",
-        help="Write normalized observations to the local SQLite cache at data/market.db.",
+        help="Write normalized observations to PostgreSQL (DATABASE_URL).",
     )
     return parser.parse_args(argv)
 

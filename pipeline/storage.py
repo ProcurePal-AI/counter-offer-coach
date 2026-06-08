@@ -79,6 +79,15 @@ CREATE TABLE IF NOT EXISTS chemicals (
     hts_codes                  TEXT             NOT NULL,       -- JSON array of HTS code strings
     status                     TEXT             NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ammonia_price_usgs (
+    data_year               INTEGER          PRIMARY KEY,    -- one row per calendar year
+    price_usd_per_short_ton DOUBLE PRECISION NOT NULL,
+    source_url              TEXT,
+    parse_strategy          TEXT,                            -- 'table' | 'regex' | 'narrative'
+    notes                   TEXT             DEFAULT '',
+    ingested_at             TEXT             DEFAULT (now()::text)
+);
 """
 
 # Column order per table -- the INSERT/verification helpers and the schema-match

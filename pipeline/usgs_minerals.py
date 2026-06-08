@@ -1,3 +1,6 @@
+"""
+usgs_minerals.py -- USGS ammonia annual price connector (PostgreSQL-backed).
+
 Sources
 -------
 * Mineral Commodity Summaries (MCS) — published each February, covers prior year.
@@ -25,7 +28,6 @@ from __future__ import annotations
 
 import io
 import re
-import sqlite3
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +35,11 @@ from typing import Dict, List, Optional, Tuple
 
 import pdfplumber
 import requests
+
+try:
+    from pipeline.storage import connect
+except ModuleNotFoundError:  # allow `python pipeline/usgs_minerals.py` from the repo root
+    from storage import connect
 
 logger = logging.getLogger(__name__)
 
@@ -317,30 +324,13 @@ def fetch_ammonia_price(
             f"Both URLs failed for {data_year}: {primary_err_msg}; {exc}"
         ) from exc
 
-# SQLite persistence
-_DDL = """
-CREATE TABLE IF NOT EXISTS ammonia_price_usgs (
-    data_year            INTEGER PRIMARY KEY,
-    price_usd_per_short_ton REAL NOT NULL,
-    source_url           TEXT,
-    parse_strategy       TEXT,
-    notes                TEXT DEFAULT '',
-    ingested_at          TEXT DEFAULT (datetime('now'))
-);
-"""
-
-def _get_connection(db_path: Path) -> sqlite3.Connection:
-    """Open (or create) the SQLite database and ensure the schema exists."""
-    conn = sqlite3.connect(db_path)
-    conn.execute(_DDL)
-    conn.commit()
-    return conn
-
+# PostgreSQL persistence. The ammonia_price_usgs table DDL lives in
+# pipeline/storage.py (the single schema authority); connect() creates it.
 def ingest_ammonia_prices(
     start_year: int,
     end_year: int,
     *,
-    db_path: Path,
+    db_path: Optional[Path] = None,  # deprecated/ignored: data now goes to Postgres
     overwrite: bool = False,
     prefer_myb: bool = False,
 ) -> List[AmmoniaPriceRecord]:
@@ -362,43 +352,52 @@ def ingest_ammonia_prices(
     -------
     List of :class:`AmmoniaPriceRecord` objects that were written.
     """
-    db_path = Path(db_path)
-    conn = _get_connection(db_path)
+    conn = connect()
+    cur = conn.cursor()
     records: List[AmmoniaPriceRecord] = []
 
-    for year in range(start_year, end_year + 1):
-        # Skip if row exists and overwrite not requested
-        if not overwrite:
-            existing = conn.execute("SELECT 1 FROM ammonia_price_usgs WHERE data_year=?", (year,)).fetchone()
-            if existing:
-                logger.info("Skipping year %s — already in DB", year)
+    base_insert = (
+        "INSERT INTO ammonia_price_usgs "
+        "(data_year, price_usd_per_short_ton, source_url, parse_strategy, notes) "
+        "VALUES (%s, %s, %s, %s, %s) "
+    )
+    if overwrite:
+        upsert = base_insert + (
+            "ON CONFLICT (data_year) DO UPDATE SET "
+            "price_usd_per_short_ton = EXCLUDED.price_usd_per_short_ton, "
+            "source_url = EXCLUDED.source_url, "
+            "parse_strategy = EXCLUDED.parse_strategy, "
+            "notes = EXCLUDED.notes"
+        )
+    else:
+        upsert = base_insert + "ON CONFLICT (data_year) DO NOTHING"
+
+    try:
+        for year in range(start_year, end_year + 1):
+            # Skip if row exists and overwrite not requested
+            if not overwrite:
+                cur.execute("SELECT 1 FROM ammonia_price_usgs WHERE data_year = %s", (year,))
+                if cur.fetchone():
+                    logger.info("Skipping year %s -- already in DB", year)
+                    continue
+
+            try:
+                rec = fetch_ammonia_price(year, prefer_myb=prefer_myb)
+            except USGSParseError as exc:
+                logger.error("Failed to fetch %s: %s", year, exc)
                 continue
 
-        try:
-            rec = fetch_ammonia_price(year, prefer_myb=prefer_myb)
-        except USGSParseError as exc:
-            logger.error("Failed to fetch %s: %s", year, exc)
-            continue
-
-        if overwrite:
-            conn.execute(
-                "INSERT OR REPLACE INTO ammonia_price_usgs "
-                "(data_year, price_usd_per_short_ton, source_url, parse_strategy, notes) "
-                "VALUES (?, ?, ?, ?, ?)",
+            cur.execute(
+                upsert,
                 (rec.data_year, rec.price_usd_per_short_ton,
-                 rec.source_url, rec.parse_strategy, rec.notes),)
-        else:
-            conn.execute(
-                "INSERT OR IGNORE INTO ammonia_price_usgs "
-                "(data_year, price_usd_per_short_ton, source_url, parse_strategy, notes) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (rec.data_year, rec.price_usd_per_short_ton,
-                 rec.source_url, rec.parse_strategy, rec.notes),)
-        conn.commit()
-        records.append(rec)
-        logger.info(
-            "Ingested %s: $%.0f/st via %s", year,
-            rec.price_usd_per_short_ton, rec.parse_strategy)
-
-    conn.close()
+                 rec.source_url, rec.parse_strategy, rec.notes),
+            )
+            conn.commit()
+            records.append(rec)
+            logger.info(
+                "Ingested %s: $%.0f/st via %s", year,
+                rec.price_usd_per_short_ton, rec.parse_strategy)
+    finally:
+        cur.close()
+        conn.close()
     return records
