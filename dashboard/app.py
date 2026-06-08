@@ -3,8 +3,8 @@
 # Shows how up-to-date each data source in the collection pipeline is,
 # on a single screen. Display-only: no alerts, no warnings.
 #
-# Run:
-#     streamlit run app.py
+# Run (from the repo root):
+#     streamlit run dashboard/app.py
 #
 # Requirements:
 #     pip install streamlit psycopg2-binary python-dotenv
@@ -16,11 +16,14 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
+# This file lives in dashboard/, so the repo root is one level up (parents[1]).
+ROOT = Path(__file__).resolve().parents[1]
+
 # pipeline/ holds storage.py (the shared Postgres seam); put it on the path so we
 # read through the same connection logic the connectors use.
-sys.path.insert(0, str(Path(__file__).resolve().parent / "pipeline"))
+sys.path.insert(0, str(ROOT / "pipeline"))
 
-REGISTRY_PATH = Path(__file__).resolve().parent / "config" / "chemical_registry.yaml"
+REGISTRY_PATH = ROOT / "config" / "chemical_registry.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -33,12 +36,17 @@ REGISTRY_PATH = Path(__file__).resolve().parent / "config" / "chemical_registry.
 #
 # Return shape of get_source_status(): a list of dicts, one per source:
 #     source:            str   -- source name, e.g. "EIA"
-#     latest_period:     str   -- most recent period as "YYYY-MM" (None if no data).
-#                                 For one-time sources this is the pull month.
+#     latest_period:     str   -- month of the most recent fetched_at, "YYYY-MM" (None
+#                                 if no data). PubChem uses the registry file's month.
 #     rows:              int   -- total row count for that source
 #     expected_cadence:  str   -- "monthly" | "quarterly" | "annual" | "one-time"
 def _live_status() -> dict[str, dict]:
-    """Read real per-source status from Postgres. Returns {} on any failure."""
+    """Read real per-source status from Postgres. Returns {} on any failure.
+
+    `latest_period` is the month of the most recent `fetched_at` (when the source was
+    last pulled), sliced to "YYYY-MM". PubChem identity has no `fetched_at` column, so
+    it keeps approximating its month from the registry file's modification time.
+    """
     try:
         import storage
 
@@ -46,26 +54,29 @@ def _live_status() -> dict[str, dict]:
     except Exception:
         return {}  # no DATABASE_URL / unreachable / driver missing -> graceful fallback
 
+    # Timestamped, source-tagged observation feeds: (source, table, cadence). Table
+    # names are fixed literals here (not user input); the source is parameterized.
+    feeds = [
+        ("EIA", "utility_observations", "monthly"),
+        ("USITC", "price_observations", "monthly"),
+        ("USGS", "price_observations", "annual"),
+    ]
     out: dict[str, dict] = {}
     try:
         with conn.cursor() as cur:
-            # EIA -> utility_observations (monthly time series)
-            cur.execute(
-                "SELECT COUNT(*), MAX(period) FROM utility_observations WHERE source = 'EIA'"
-            )
-            count, latest = cur.fetchone()
-            if count:
-                out["EIA"] = {"source": "EIA", "latest_period": latest,
-                              "rows": count, "expected_cadence": "monthly"}
-
-            # USITC -> price_observations (monthly time series)
-            cur.execute(
-                "SELECT COUNT(*), MAX(period) FROM price_observations WHERE source = 'USITC'"
-            )
-            count, latest = cur.fetchone()
-            if count:
-                out["USITC"] = {"source": "USITC", "latest_period": latest,
-                                "rows": count, "expected_cadence": "monthly"}
+            for source, table, cadence in feeds:
+                cur.execute(
+                    f"SELECT COUNT(*), MAX(fetched_at) FROM {table} WHERE source = %s",
+                    (source,),
+                )
+                count, latest = cur.fetchone()
+                if count:
+                    out[source] = {
+                        "source": source,
+                        "latest_period": latest[:7] if latest else None,  # fetched_at -> YYYY-MM
+                        "rows": count,
+                        "expected_cadence": cadence,
+                    }
 
             # PubChem -> chemicals (one-time reference identity; no timestamp column,
             # so approximate "last pulled" from the registry file's modification month)
@@ -100,7 +111,7 @@ def get_source_status() -> list[dict]:
     return [
         live.get("EIA", no_data["EIA"]),
         live.get("USITC", no_data["USITC"]),
-        no_data["USGS"],
+        live.get("USGS", no_data["USGS"]),
         no_data["EDGAR"],
         live.get("PubChem", no_data["PubChem"]),
     ]
