@@ -35,6 +35,7 @@ CHEMICALS = {
     "nitric_acid":  {"cid": 944,  "hts_codes": ["2808.00.00"], "status": "feedstock_only"},
     "hydrogen":     {"cid": 783,  "hts_codes": ["2804.10.00"], "status": "feedstock_only"},
     "water":        {"cid": 962,  "hts_codes": [],             "status": "feedstock_only"},
+    "ammonia":      {"cid": 222,  "hts_codes": ["2814.10.00"], "status": "feedstock_only"},
 }
 
 CAS_RE = re.compile(r"^\d{2,7}-\d{2}-\d$")
