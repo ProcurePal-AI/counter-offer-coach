@@ -37,7 +37,7 @@ touches storage.py only; this file is unchanged.
 Run examples
 ------------
   python pipeline/usgs_minerals.py --dry-run                  # download + parse + print
-  python pipeline/usgs_minerals.py --write                    # write to data/market.db
+  python pipeline/usgs_minerals.py --write                    # write to the Postgres store (DATABASE_URL)
   python pipeline/usgs_minerals.py --start-year 2021 --end-year 2024 --write
   python pipeline/usgs_minerals.py --pdf path/to.pdf --year 2023 --dry-run
 """
@@ -425,7 +425,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     p.add_argument("--dry-run", action="store_true", default=True,
                    help="Download/parse/print but do not write storage (default).")
     p.add_argument("--write", action="store_false", dest="dry_run",
-                   help="Write normalized rows to the local SQLite cache at data/market.db.")
+                   help="Write normalized rows to the Postgres store (DATABASE_URL).")
     return p.parse_args(argv)
 
 

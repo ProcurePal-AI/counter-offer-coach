@@ -1,7 +1,7 @@
 """
 prices.py -- price resolver for the should-cost engine (Cat 3 seam).
 
-Turns the raw market signals in the SQLite store into a per-ton price for any
+Turns the raw market signals in the Postgres store into a per-ton price for any
 chemical the engine needs, so the cost calculators (feedstock 3.1, utility 3.2)
 can ask resolve_price_usd_per_ton(chemical_id, period, region, conn) without
 caring whether a price was a direct lookup or a derivation.
@@ -29,7 +29,7 @@ price.
 
 from __future__ import annotations
 
-import sqlite3
+from typing import Any  # conn is a psycopg2 connection (DB-agnostic type to avoid a hard import)
 
 # --- Derivation constants --------------------------------------------------
 # Natural gas consumed per metric ton of H2 via steam methane reforming, gas
@@ -75,19 +75,27 @@ class PriceUnavailable(LookupError):
     """No usable price source for this chemical is in the store yet."""
 
 
-def gas_price_usd_per_mmbtu(conn: sqlite3.Connection, period: str,
+def _fetchone(conn: Any, sql: str, params: tuple):
+    """Run a single-row query through a psycopg2 cursor; return the row or None."""
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        return cur.fetchone()
+
+
+def gas_price_usd_per_mmbtu(conn: Any, period: str,
                             region: str = "US") -> float:
     """Henry Hub natural gas spot, $/MMBtu, for `period` (else latest <= period)."""
     for clause, args in (
-        ("utility = ? AND period = ?", (HENRY_HUB_UTILITY, period)),
-        ("utility = ? AND period <= ?", (HENRY_HUB_UTILITY, period)),
+        ("utility = %s AND period = %s", (HENRY_HUB_UTILITY, period)),
+        ("utility = %s AND period <= %s", (HENRY_HUB_UTILITY, period)),
     ):
-        row = conn.execute(
+        row = _fetchone(
+            conn,
             f"SELECT price_usd_per_unit FROM utility_observations WHERE {clause} "
             f"AND price_usd_per_unit IS NOT NULL "
             f"ORDER BY period DESC, fetched_at DESC LIMIT 1",
             args,
-        ).fetchone()
+        )
         if row is not None:
             return float(row[0])
     raise PriceUnavailable(
@@ -95,7 +103,7 @@ def gas_price_usd_per_mmbtu(conn: sqlite3.Connection, period: str,
     )
 
 
-def electricity_price_usd_per_kwh(conn: sqlite3.Connection, period: str,
+def electricity_price_usd_per_kwh(conn: Any, period: str,
                                   region: str = "US") -> float:
     """Industrial electricity, $/kWh, for `period`/`region` (else latest <=).
 
@@ -103,16 +111,17 @@ def electricity_price_usd_per_kwh(conn: sqlite3.Connection, period: str,
     region, then the most recent at/<= period.
     """
     for clause, args in (
-        ("utility = ? AND period = ? AND region = ?", (ELECTRICITY_UTILITY, period, region)),
-        ("utility = ? AND period = ?", (ELECTRICITY_UTILITY, period)),
-        ("utility = ? AND period <= ?", (ELECTRICITY_UTILITY, period)),
+        ("utility = %s AND period = %s AND region = %s", (ELECTRICITY_UTILITY, period, region)),
+        ("utility = %s AND period = %s", (ELECTRICITY_UTILITY, period)),
+        ("utility = %s AND period <= %s", (ELECTRICITY_UTILITY, period)),
     ):
-        row = conn.execute(
+        row = _fetchone(
+            conn,
             f"SELECT price_usd_per_unit FROM utility_observations WHERE {clause} "
             f"AND price_usd_per_unit IS NOT NULL "
             f"ORDER BY period DESC, fetched_at DESC LIMIT 1",
             args,
-        ).fetchone()
+        )
         if row is not None:
             return float(row[0])
     raise PriceUnavailable(
@@ -120,7 +129,7 @@ def electricity_price_usd_per_kwh(conn: sqlite3.Connection, period: str,
     )
 
 
-def steam_price_usd_per_gj(conn: sqlite3.Connection, period: str,
+def steam_price_usd_per_gj(conn: Any, period: str,
                            region: str = "US",
                            boiler_efficiency: float = BOILER_EFFICIENCY) -> float:
     """Steam, $/GJ, DERIVED from natural gas via a gas-boiler energy balance."""
@@ -129,7 +138,7 @@ def steam_price_usd_per_gj(conn: sqlite3.Connection, period: str,
 
 
 def resolve_utility_price_usd_per_unit(utility_kind: str, period: str, region: str,
-                                       conn: sqlite3.Connection) -> float:
+                                       conn: Any) -> float:
     """Price of a metered utility in its config unit (the 3.2 injection point).
 
     Returns $/kWh for electricity and $/GJ for steam, matching the config's
@@ -145,7 +154,7 @@ def resolve_utility_price_usd_per_unit(utility_kind: str, period: str, region: s
     raise PriceUnavailable(f"unknown utility kind: {utility_kind!r}")
 
 
-def _price_observation_usd_per_kg(conn: sqlite3.Connection, chemical_id: str,
+def _price_observation_usd_per_kg(conn: Any, chemical_id: str,
                                   period: str, region: str) -> float | None:
     """Latest non-NULL market price ($/kg) for chemical_id at/<= period.
 
@@ -153,16 +162,17 @@ def _price_observation_usd_per_kg(conn: sqlite3.Connection, chemical_id: str,
     NULL unit values (USITC keeps them for incomplete months) are excluded.
     """
     for clause, args in (
-        ("chemical_id = ? AND period = ? AND region = ?", (chemical_id, period, region)),
-        ("chemical_id = ? AND period = ?", (chemical_id, period)),
-        ("chemical_id = ? AND period <= ?", (chemical_id, period)),
+        ("chemical_id = %s AND period = %s AND region = %s", (chemical_id, period, region)),
+        ("chemical_id = %s AND period = %s", (chemical_id, period)),
+        ("chemical_id = %s AND period <= %s", (chemical_id, period)),
     ):
-        row = conn.execute(
+        row = _fetchone(
+            conn,
             f"SELECT price_usd_per_kg FROM price_observations WHERE {clause} "
             f"AND price_usd_per_kg IS NOT NULL "
             f"ORDER BY period DESC, fetched_at DESC LIMIT 1",
             args,
-        ).fetchone()
+        )
         if row is not None:
             return float(row[0])
     return None
@@ -175,7 +185,7 @@ _PENDING_FEEDS: dict[str, str] = {}
 
 
 def resolve_price_usd_per_ton(chemical_id: str, period: str, region: str,
-                              conn: sqlite3.Connection) -> float:
+                              conn: Any) -> float:
     """Per-ton price for `chemical_id`. Raises PriceUnavailable if no source yet."""
     if chemical_id == "hydrogen":
         return gas_price_usd_per_mmbtu(conn, period, region) * NG_MMBTU_PER_TON_H2
