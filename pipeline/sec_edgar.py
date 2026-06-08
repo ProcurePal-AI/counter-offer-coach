@@ -38,16 +38,18 @@ from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
 
 import requests
+import yaml
 
 SEC_SUBMISSIONS_BASE = "https://data.sec.gov/submissions"
 SEC_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
 SEC_COMPANY_TICKERS_EXCHANGE = "https://www.sec.gov/files/company_tickers_exchange.json"
 SOURCE = "SEC EDGAR"
-COVESTRO_IR_SOURCE = "Covestro IR"
 COVESTRO_REPORTS_URL = "https://www.covestro.com/en/investors/reports-and-presentations"
 MISSING_SEC_CIK_TYPE = "NO-SEC-CIK"
 DEFAULT_MAX_FILINGS_PER_COMPANY = 12
 REQUEST_SLEEP_SECONDS = 0.2
+DEFAULT_CHEMICAL = "aniline"
+DEFAULT_SOURCES_CONFIG = "config/producer_sources.yaml"
 
 # SEC requires automated tools to identify themselves.
 # SEC 要求自动化请求必须声明 User-Agent，通常包含项目名和联系邮箱。
@@ -79,6 +81,18 @@ class CompanyConfig:
     cik_lookup_terms: tuple[str, ...]
     ir_reports_url: str | None
     notes: str
+    source_type: str = "sec"
+    selected_industries: tuple[str, ...] = ()
+    source_urls: tuple[str, ...] = ()
+    desired_information: tuple[str, ...] = ()
+    expected_update_frequency: str | None = None
+    reporting_standard_frequencies: tuple[str, ...] = ()
+    report_frequencies: tuple[str, ...] = ()
+    check_monthly_reports: bool = False
+    monthly_report_keywords: tuple[str, ...] = ()
+    weekly_optional: bool = False
+    weekly_report_keywords: tuple[str, ...] = ()
+    signal_feature_policy: str | None = None
 
 
 COMPANIES: dict[str, CompanyConfig] = {
@@ -139,6 +153,110 @@ COMPANIES: dict[str, CompanyConfig] = {
         notes="Foreign company; checks 10-K/10-Q first, then 20-F/6-K if a CIK exists.",
     ),
 }
+
+
+def _as_tuple(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, list | tuple):
+        return tuple(str(item) for item in value)
+    raise TypeError(f"Expected string/list/tuple in producer source config, got {type(value)}")
+
+
+def _selected_company_entries(chemical_config: dict) -> list[tuple[str, dict]]:
+    selected = chemical_config.get("selected_companies") or chemical_config.get("producers") or []
+    entries: list[tuple[str, dict]] = []
+    for item in selected:
+        if isinstance(item, str):
+            entries.append((item, {}))
+        elif isinstance(item, dict):
+            key = item.get("key")
+            if not key:
+                raise ValueError("Each selected company mapping must include a 'key'.")
+            entries.append((str(key), item))
+        else:
+            raise TypeError(f"Selected company entries must be strings or mappings, got {type(item)}")
+    return entries
+
+
+def _primary_source(raw_company: dict) -> dict:
+    sources = raw_company.get("sources") or []
+    if not sources:
+        return raw_company
+    if not isinstance(sources, list):
+        raise TypeError("Company 'sources' must be a list of source mappings.")
+    return sources[0] or {}
+
+
+def _source_urls(raw_company: dict) -> tuple[str, ...]:
+    sources = raw_company.get("sources") or []
+    urls: list[str] = []
+    for source in sources:
+        if isinstance(source, dict) and source.get("url"):
+            urls.append(str(source["url"]))
+    return tuple(urls)
+
+
+def load_company_sources(config_path: Path, chemical: str) -> dict[str, CompanyConfig]:
+    """Load the company/source list for one chemical from YAML config.
+
+    三层结构在这里落地：
+      1. discovery.candidate_companies 是软件围绕 chemical 搜集的上下游候选公司池
+      2. selected_companies 是用户筛选/替换后真正纳入本次分析的公司
+      3. companies.<key>.sources 是用户指定的网站/URL，以及要从该来源拿的信息
+    """
+
+    with config_path.open() as f:
+        config = yaml.safe_load(f) or {}
+
+    chemicals = config.get("chemicals", {})
+    companies = config.get("companies", {})
+    if chemical not in chemicals:
+        available = ", ".join(sorted(chemicals)) or "none"
+        raise ValueError(f"Chemical '{chemical}' not found in {config_path}. Available: {available}")
+
+    selected_entries = _selected_company_entries(chemicals[chemical])
+    reporting_standard = chemicals[chemical].get("reporting_standard", {})
+    default_frequencies = _as_tuple(reporting_standard.get("default_frequencies"))
+    feature_policy = reporting_standard.get("feature_policy")
+    loaded: dict[str, CompanyConfig] = {}
+    for key, selected_meta in selected_entries:
+        if key not in companies:
+            raise ValueError(f"Producer '{key}' is listed for '{chemical}' but missing in companies.")
+        raw = companies[key] or {}
+        source = _primary_source(raw)
+        source_type = str(source.get("source_type") or raw.get("source_type", "sec"))
+        source_url = str(source["url"]) if source.get("url") else None
+        loaded[key] = CompanyConfig(
+            name=str(raw["name"]),
+            cik=str(raw["cik"]) if raw.get("cik") else None,
+            ticker=str(raw["ticker"]) if raw.get("ticker") else None,
+            target_forms=_as_tuple(source.get("target_forms") or raw.get("target_forms")),
+            fallback_forms=_as_tuple(source.get("fallback_forms") or raw.get("fallback_forms")),
+            cik_lookup_terms=_as_tuple(raw.get("cik_lookup_terms") or raw.get("name")),
+            ir_reports_url=source_url if source_type == "company_ir" else None,
+            notes=str(raw.get("notes", "")),
+            source_type=source_type,
+            selected_industries=_as_tuple(selected_meta.get("selected_industries")),
+            source_urls=_source_urls(raw),
+            desired_information=_as_tuple(source.get("desired_information")),
+            expected_update_frequency=(
+                str(source["expected_update_frequency"])
+                if source.get("expected_update_frequency")
+                else None
+            ),
+            reporting_standard_frequencies=default_frequencies,
+            report_frequencies=_as_tuple(source.get("report_frequencies")),
+            check_monthly_reports=bool(source.get("check_monthly_reports", False)),
+            monthly_report_keywords=_as_tuple(source.get("monthly_report_keywords")),
+            weekly_optional=bool(source.get("weekly_optional", False)),
+            weekly_report_keywords=_as_tuple(source.get("weekly_report_keywords")),
+            signal_feature_policy=str(feature_policy) if feature_policy else None,
+        )
+
+    return loaded
 
 
 @dataclass(frozen=True)
@@ -394,16 +512,19 @@ def _normalize_filings_for_forms(
     return rows
 
 
-def _infer_covestro_form_type(url: str) -> str | None:
-    """Classify Covestro IR URLs into annual/interim filing-like buckets.
+def _infer_ir_form_type(url: str) -> str | None:
+    """Classify company IR URLs into annual/interim filing-like buckets.
 
-    Covestro 不是 SEC 10-K/10-Q filer，所以这里把官方 IR 文件归类成：
+    公司 IR 页面不是 SEC 10-K/10-Q，所以这里把官方报告链接归类成：
       - IR-FY: annual report / full-year report
+      - IR-MONTHLY: monthly sales / production / market update
       - IR-HY: half-year financial report
       - IR-Q1 / IR-Q3: quarterly statements
     """
 
     normalized = url.casefold()
+    if "monthly" in normalized or "monthly-report" in normalized or "monthly-update" in normalized:
+        return "IR-MONTHLY"
     if "annual-financial-report" in normalized or "annual-report" in normalized:
         return "IR-FY"
     if "half-year-financial-report" in normalized or "_q2_" in normalized:
@@ -413,6 +534,12 @@ def _infer_covestro_form_type(url: str) -> str | None:
     if "quarterly-statement-q3" in normalized or "_q3_" in normalized:
         return "IR-Q3"
     return None
+
+
+def _infer_covestro_form_type(url: str) -> str | None:
+    """Backward-compatible wrapper for the original Covestro tests."""
+
+    return _infer_ir_form_type(url)
 
 
 def _infer_year(url: str) -> str | None:
@@ -448,14 +575,22 @@ def missing_sec_cik_record(company_key: str, company: CompanyConfig) -> FilingRe
     )
 
 
-def fetch_covestro_ir_filings(user_agent: str, max_filings: int) -> list[FilingRecord]:
-    """Pull Covestro official IR financial report links.
+def fetch_ir_filings(
+    company_key: str,
+    company: CompanyConfig,
+    user_agent: str,
+    max_filings: int,
+) -> list[FilingRecord]:
+    """Pull official company IR financial report links.
 
-    从 Covestro 官方 reports-and-presentations 页面抓取 FY/Q1/HY/Q3 财务报告链接。
-    这是 Covestro 的 Frankfurt/IR supplement，不是 SEC EDGAR 数据。
+    从公司官方 reports / presentations 页面抓取 FY/Q1/HY/Q3 财务报告链接。
+    这是非 SEC 的官方 IR supplement；以后换 chemical 时，只需要在 YAML 里换 URL。
     """
 
-    r = requests.get(COVESTRO_REPORTS_URL, headers=_headers(user_agent), timeout=30)
+    if not company.ir_reports_url:
+        return []
+
+    r = requests.get(company.ir_reports_url, headers=_headers(user_agent), timeout=30)
     r.raise_for_status()
 
     parser = LinkCollector()
@@ -466,8 +601,8 @@ def fetch_covestro_ir_filings(user_agent: str, max_filings: int) -> list[FilingR
     seen: set[str] = set()
 
     for href, text in parser.links:
-        url = urljoin(COVESTRO_REPORTS_URL, href)
-        form_type = _infer_covestro_form_type(url)
+        url = urljoin(company.ir_reports_url, href)
+        form_type = _infer_ir_form_type(url)
         if not form_type or url in seen:
             continue
         seen.add(url)
@@ -477,11 +612,11 @@ def fetch_covestro_ir_filings(user_agent: str, max_filings: int) -> list[FilingR
         year = _infer_year(url)
         rows.append(
             FilingRecord(
-                company_key="covestro",
-                company_name="Covestro AG",
-                source=COVESTRO_IR_SOURCE,
+                company_key=company_key,
+                company_name=company.name,
+                source=f"{company.name} IR",
                 cik="",
-                ticker=None,
+                ticker=company.ticker,
                 filing_type=form_type,
                 filing_date="",
                 period_end_date=year,
@@ -491,7 +626,7 @@ def fetch_covestro_ir_filings(user_agent: str, max_filings: int) -> list[FilingR
                 local_file_path=None,
                 fetched_at=fetched_at,
                 notes=(
-                    "Official Covestro IR financial report supplement; "
+                    "Official company IR financial report supplement; "
                     f"link_text={text or 'n/a'}"
                 ),
             )
@@ -501,6 +636,12 @@ def fetch_covestro_ir_filings(user_agent: str, max_filings: int) -> list[FilingR
             break
 
     return rows
+
+
+def fetch_covestro_ir_filings(user_agent: str, max_filings: int) -> list[FilingRecord]:
+    """Backward-compatible wrapper for the original Covestro-only helper."""
+
+    return fetch_ir_filings("covestro", COMPANIES["covestro"], user_agent, max_filings)
 
 
 def download_filing(record: FilingRecord, user_agent: str, out_dir: Path) -> FilingRecord:
@@ -560,7 +701,11 @@ def write_filing_metadata(rows: list[FilingRecord], out_path: Path) -> None:
             writer.writerow(row.__dict__)
 
 
-def print_company_audit_plan() -> None:
+def print_company_audit_plan(
+    companies: dict[str, CompanyConfig],
+    chemical: str = DEFAULT_CHEMICAL,
+    include_weekly: bool = False,
+) -> None:
     """Print the current audit plan before we perform real SEC requests.
 
     打印当前审计计划，方便先人工审核：
@@ -569,33 +714,62 @@ def print_company_audit_plan() -> None:
       - 目标 filing 类型是什么
     """
 
-    print("SEC EDGAR company audit plan:")
-    for key, company in COMPANIES.items():
+    print(f"Producer filing audit plan for chemical={chemical}:")
+    print("Consumer default: annual + quarterly + monthly inputs are normalized together.")
+    print(f"Weekly option enabled: {include_weekly}")
+    for key, company in companies.items():
         cik = company.cik or "TODO"
         ticker = company.ticker or "n/a"
         forms = ", ".join(company.target_forms)
         fallback = ", ".join(company.fallback_forms) if company.fallback_forms else "none"
-        print(f"  {key}: {company.name} | CIK={cik} | ticker={ticker} | forms={forms}")
+        print(
+            f"  {key}: {company.name} | source_type={company.source_type} | "
+            f"CIK={cik} | ticker={ticker} | forms={forms}"
+        )
         print(f"    fallback_forms={fallback}")
         if company.ir_reports_url:
             print(f"    ir_reports_url={company.ir_reports_url}")
+        if company.selected_industries:
+            print(f"    selected_industries={', '.join(company.selected_industries)}")
+        if company.source_urls:
+            print(f"    source_urls={', '.join(company.source_urls)}")
+        if company.desired_information:
+            print(f"    desired_information={', '.join(company.desired_information)}")
+        if company.expected_update_frequency:
+            print(f"    expected_update_frequency={company.expected_update_frequency}")
+        if company.reporting_standard_frequencies:
+            print(
+                f"    consumer_default_frequencies={', '.join(company.reporting_standard_frequencies)}"
+            )
+        if company.report_frequencies:
+            print(f"    source_report_frequencies={', '.join(company.report_frequencies)}")
+        if company.signal_feature_policy:
+            print(f"    signal_feature_policy={company.signal_feature_policy}")
+        print(f"    check_monthly_reports={company.check_monthly_reports}")
+        if company.monthly_report_keywords:
+            print(f"    monthly_report_keywords={', '.join(company.monthly_report_keywords)}")
+        print(f"    weekly_optional={company.weekly_optional}")
+        if include_weekly and company.weekly_report_keywords:
+            print(f"    weekly_report_keywords={', '.join(company.weekly_report_keywords)}")
         print(f"    {company.notes}")
 
 
-def pull_covestro_ir_supplement(
+def pull_ir_supplement(
+    company_key: str,
+    company: CompanyConfig,
     user_agent: str,
     max_filings: int,
     download: bool,
     filing_dir: Path,
 ) -> list[FilingRecord]:
-    """Pull Covestro official IR supplement rows.
+    """Pull official IR supplement rows for a configured company.
 
-    Covestro 没有 SEC CIK 时也要执行这段，因为它是非 SEC 的官方 IR 补充源。
+    公司没有 SEC CIK 时也可以执行这段，因为它是非 SEC 的官方 IR 补充源。
     """
 
-    print("    pulling Covestro IR financial report supplement...")
-    ir_rows = fetch_covestro_ir_filings(user_agent, max_filings)
-    print(f"    {len(ir_rows)} Covestro IR report links found")
+    print(f"    pulling {company.name} IR financial report supplement...")
+    ir_rows = fetch_ir_filings(company_key, company, user_agent, max_filings)
+    print(f"    {len(ir_rows)} IR report links found")
     if download:
         downloaded_ir: list[FilingRecord] = []
         for row in ir_rows:
@@ -604,7 +778,26 @@ def pull_covestro_ir_supplement(
     return ir_rows
 
 
-def pull_all(user_agent: str, max_filings: int, download: bool) -> list[FilingRecord]:
+def pull_covestro_ir_supplement(
+    user_agent: str,
+    max_filings: int,
+    download: bool,
+    filing_dir: Path,
+) -> list[FilingRecord]:
+    """Backward-compatible wrapper for the original Covestro-only helper."""
+
+    return pull_ir_supplement(
+        "covestro", COMPANIES["covestro"], user_agent, max_filings, download, filing_dir
+    )
+
+
+def pull_all(
+    user_agent: str,
+    max_filings: int,
+    download: bool,
+    companies: dict[str, CompanyConfig] | None = None,
+    chemical: str = DEFAULT_CHEMICAL,
+) -> list[FilingRecord]:
     """Resolve CIKs, pull SEC metadata, optionally download filing documents.
 
     完整执行流程：
@@ -619,19 +812,32 @@ def pull_all(user_agent: str, max_filings: int, download: bool) -> list[FilingRe
     metadata_path = base_dir / "data" / "producer_filings_sec_edgar.csv"
     filing_dir = base_dir / "data" / "sec_edgar_filings"
 
-    print("Pulling SEC company index...")
-    company_index = fetch_company_index(user_agent)
+    selected_companies = companies or COMPANIES
+    needs_sec_index = any(company.source_type == "sec" for company in selected_companies.values())
+    company_index = {}
+    if needs_sec_index:
+        print("Pulling SEC company index...")
+        company_index = fetch_company_index(user_agent)
 
     all_rows: list[FilingRecord] = []
-    for key, company in COMPANIES.items():
+    for key, company in selected_companies.items():
         print(f"  resolving {company.name}...")
+        if company.source_type != "sec":
+            if company.ir_reports_url:
+                all_rows.extend(
+                    pull_ir_supplement(key, company, user_agent, max_filings, download, filing_dir)
+                )
+            else:
+                print(f"    no supported source adapter for source_type={company.source_type}")
+            continue
+
         cik = resolve_cik(company, company_index)
         if not cik:
             print("    no CIK found for SEC filings")
             all_rows.append(missing_sec_cik_record(key, company))
-            if key == "covestro" and company.ir_reports_url:
+            if company.ir_reports_url:
                 all_rows.extend(
-                    pull_covestro_ir_supplement(user_agent, max_filings, download, filing_dir)
+                    pull_ir_supplement(key, company, user_agent, max_filings, download, filing_dir)
                 )
             continue
 
@@ -652,13 +858,13 @@ def pull_all(user_agent: str, max_filings: int, download: bool) -> list[FilingRe
         all_rows.extend(rows)
         time.sleep(REQUEST_SLEEP_SECONDS)
 
-        if key == "covestro" and company.ir_reports_url:
+        if company.ir_reports_url:
             all_rows.extend(
-                pull_covestro_ir_supplement(user_agent, max_filings, download, filing_dir)
+                pull_ir_supplement(key, company, user_agent, max_filings, download, filing_dir)
             )
 
     write_filing_metadata(all_rows, metadata_path)
-    print(f"Wrote {len(all_rows)} rows -> {metadata_path}")
+    print(f"Wrote {len(all_rows)} {chemical} rows -> {metadata_path}")
     return all_rows
 
 
@@ -690,15 +896,41 @@ def main() -> int:
         action="store_true",
         help="Only print the company audit plan; do not call SEC APIs.",
     )
+    parser.add_argument(
+        "--chemical",
+        default=DEFAULT_CHEMICAL,
+        help="Chemical key to load from the producer source config.",
+    )
+    parser.add_argument(
+        "--sources-config",
+        default=DEFAULT_SOURCES_CONFIG,
+        help="YAML config mapping chemicals to producer/company filing sources.",
+    )
+    parser.add_argument(
+        "--include-weekly",
+        action="store_true",
+        help="Include optional weekly/event-driven source keywords in the audit plan.",
+    )
     args = parser.parse_args()
 
     user_agent = os.environ.get(USER_AGENT_ENV, DEFAULT_USER_AGENT)
+    base_dir = Path(__file__).resolve().parents[1]
+    sources_config = Path(args.sources_config)
+    if not sources_config.is_absolute():
+        sources_config = base_dir / sources_config
+    companies = load_company_sources(sources_config, args.chemical)
 
-    print_company_audit_plan()
+    print_company_audit_plan(companies, args.chemical, include_weekly=args.include_weekly)
     if args.plan_only:
         return 0
 
-    rows = pull_all(user_agent=user_agent, max_filings=args.max_filings, download=args.download)
+    rows = pull_all(
+        user_agent=user_agent,
+        max_filings=args.max_filings,
+        download=args.download,
+        companies=companies,
+        chemical=args.chemical,
+    )
     if not rows:
         print("WARNING: no 10-K/10-Q rows found for the configured companies.", file=sys.stderr)
     return 0
