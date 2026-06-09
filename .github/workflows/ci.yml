@@ -1,8 +1,17 @@
 name: CI
 on: [push, pull_request]
+
+# Don't pile up concurrent runs on the same ref: each run opens many Neon
+# connections, and overlapping runs can exhaust the free-tier connection limit
+# (which made a run hang indefinitely). Newer push on a ref cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # hard stop so a stuck DB connection can't hang the job for 14m+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
