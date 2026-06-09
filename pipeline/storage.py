@@ -126,6 +126,18 @@ CHEMICAL_COLUMNS = [
     "hts_codes",
     "status",
 ]
+PRODUCER_FILINGS_COLUMNS = [
+    "company_name",
+    "ticker",
+    "source",
+    "filing_type",
+    "filing_date",
+    "period_end_date",
+    "source_url",
+    "local_file_path",
+    "fetched_at",
+    "notes",
+]
 
 
 def _dsn() -> str:
@@ -255,6 +267,20 @@ def write_chemicals(registry: dict, conn: PgConnection | None = None) -> int:
             conn.close()
 
 
+def write_producer_filings(rows: list[dict], conn: PgConnection | None = None) -> int:
+    """Append SEC EDGAR filing metadata rows to `producer_filings`. Append-only."""
+    own = conn is None
+    conn = conn or connect()
+    try:
+        n = _insert_rows(conn, "producer_filings", PRODUCER_FILINGS_COLUMNS, rows)
+        if own:
+            conn.commit()
+        return n
+    finally:
+        if own:
+            conn.close()
+
+
 def dump_csv(table: str, out_path: Path | str, conn: PgConnection | None = None) -> int:
     """Export an entire table to CSV (header + all rows). Returns the row count.
 
@@ -289,7 +315,7 @@ def verify(conn: PgConnection | None = None, limit: int = 5) -> None:
     conn = conn or connect()
     try:
         with conn.cursor() as cur:
-            for table in ("utility_observations", "price_observations", "chemicals"):
+            for table in ("utility_observations", "price_observations", "chemicals", "producer_filings"):
                 cur.execute(f"SELECT COUNT(*) FROM {table}")
                 count = cur.fetchone()[0]
                 print(f"\n== {table}: {count} rows ==")

@@ -701,6 +701,41 @@ def write_filing_metadata(rows: list[FilingRecord], out_path: Path) -> None:
             writer.writerow(row.__dict__)
 
 
+def write_filing_metadata_to_db(rows: list[FilingRecord]) -> int:
+    """Also persist filing metadata into the Postgres `producer_filings` table.
+
+    Additive to the CSV output. Best-effort: if the store is unreachable (e.g. no
+    DATABASE_URL), the CSV is still written and we just warn instead of failing.
+    """
+    if not rows:
+        return 0
+    try:
+        try:
+            from pipeline.storage import write_producer_filings
+        except ModuleNotFoundError:  # `python pipeline/sec_edgar.py` from repo root
+            from storage import write_producer_filings
+
+        db_rows = [
+            {
+                "company_name": r.company_name,
+                "ticker": r.ticker,
+                "source": r.source,
+                "filing_type": r.filing_type,
+                "filing_date": r.filing_date,
+                "period_end_date": r.period_end_date,
+                "source_url": r.source_url,
+                "local_file_path": r.local_file_path,
+                "fetched_at": r.fetched_at,
+                "notes": r.notes,
+            }
+            for r in rows
+        ]
+        return write_producer_filings(db_rows)
+    except Exception as exc:  # keep the CSV pull working even without a DB
+        print(f"  (skipped DB write -> producer_filings: {exc})")
+        return 0
+
+
 def print_company_audit_plan(
     companies: dict[str, CompanyConfig],
     chemical: str = DEFAULT_CHEMICAL,
@@ -865,6 +900,10 @@ def pull_all(
 
     write_filing_metadata(all_rows, metadata_path)
     print(f"Wrote {len(all_rows)} {chemical} rows -> {metadata_path}")
+
+    written = write_filing_metadata_to_db(all_rows)
+    if written:
+        print(f"Also wrote {written} rows -> producer_filings (PostgreSQL)")
     return all_rows
 
 
