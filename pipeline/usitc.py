@@ -42,7 +42,7 @@ except ModuleNotFoundError:  # Allows `python pipeline/usitc.py` from the repo r
 
 USITC_BASE = "https://datawebws.usitc.gov/dataweb"
 SOURCE = "USITC"
-DEFAULT_MONTHS = 24
+DEFAULT_MONTHS = 122
 
 CHEMICALS = {
     "benzene": {"display_hts_code": "2902.20.00", "hts_code": "29022000"},
