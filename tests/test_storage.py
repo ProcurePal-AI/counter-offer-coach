@@ -72,3 +72,16 @@ def test_chemicals_upsert_and_json_hts(db_conn):
         assert cur.fetchone()[0] == 1
         cur.execute("SELECT hts_codes FROM chemicals")
         assert json.loads(cur.fetchone()[0]) == ["2921.41.20"]
+
+
+def test_producer_filings_round_trip(db_conn):
+    """SEC EDGAR filing metadata writes into producer_filings (append-only)."""
+    row = {"company_name": "BASF SE", "ticker": "BAS", "source": "SEC_EDGAR",
+           "filing_type": "10-K", "filing_date": "2025-02-28",
+           "period_end_date": "2024-12-31", "source_url": "https://sec.gov/x",
+           "local_file_path": None, "fetched_at": "2026-06-09T00:00:00+00:00",
+           "notes": None}
+    assert storage.write_producer_filings([row], db_conn) == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT company_name, filing_type, source FROM producer_filings")
+        assert cur.fetchone() == ("BASF SE", "10-K", "SEC_EDGAR")
