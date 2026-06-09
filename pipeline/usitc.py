@@ -255,7 +255,7 @@ def _find_value(row: dict[str, Any], patterns: tuple[str, ...]) -> Any:
 def _number(value: Any) -> float | None:
     if value is None:
         return None
-    if isinstance(value, int | float):
+    if isinstance(value, (int, float)):
         return float(value)
     cleaned = re.sub(r"[^0-9.\-]", "", str(value))
     if cleaned in {"", "-", "."}:
@@ -508,7 +508,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--write",
         action="store_false",
         dest="dry_run",
-        help="Write normalized observations to the local SQLite cache at data/market.db.",
+        help="Write normalized observations to PostgreSQL (DATABASE_URL).",
     )
     return parser.parse_args(argv)
 

@@ -52,3 +52,12 @@ chemicals:
     molecular_weight_g_per_mol: 18.015
     hts_codes: []
     status: feedstock_only
+  ammonia:
+    cas: 7664-41-7
+    pubchem_cid: 222
+    iupac_name: azane
+    molecular_formula: H3N
+    molecular_weight_g_per_mol: 17.031
+    hts_codes:
+    - 2814.10.00
+    status: feedstock_only

@@ -9,4 +9,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
+      # DB-backed tests run in an isolated throwaway schema; they skip automatically
+      # if DATABASE_URL is not configured as a repository secret.
       - run: pytest
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}

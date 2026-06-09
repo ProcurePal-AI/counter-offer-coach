@@ -18,7 +18,7 @@ so the calibration layer can read evidence by source without code changes:
 Storage is intentionally decoupled: this module produces normalized rows and hands
 them to `write_utility_observations()`. That function is a thin seam owned by the
 storage layer (pipeline/storage.py), which appends the rows to the
-`utility_observations` SQLite table.
+`utility_observations` table.
 
 Run:  python pipeline/eia.py
 """
@@ -133,7 +133,7 @@ def pull_all(api_key: str, months: int = DEFAULT_MONTHS) -> list[dict]:
 
 
 def write_utility_observations(rows: list[dict]) -> None:
-    """Persist normalized rows into the `utility_observations` SQLite table.
+    """Persist normalized rows into the `utility_observations` table.
 
     Storage seam owned by the Step 1 storage layer (pipeline/storage.py). The row
     dict keys already match the table's columns, so this is a straight append-only

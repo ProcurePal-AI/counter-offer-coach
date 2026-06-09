@@ -1,0 +1,143 @@
+chemicals:
+  aniline:
+    description: "Company-source map for the aniline / MDI / polyurethane value chain."
+    reporting_standard:
+      default_frequencies: ["annual", "quarterly", "monthly"]
+      optional_frequencies: ["weekly"]
+      normalize_to_signal_schema: true
+      feature_policy: "Keep each source's raw fields, then map annual, quarterly, and monthly inputs into common pricing signals for consumers."
+      consumer_default: "Use annual reports, quarterly reports, and monthly updates together."
+      consumer_weekly_option: "If the consumer requests weekly monitoring, add event-driven filings, company news, press releases, and weekly market/energy updates."
+
+    # Layer 1: discovery.
+    # Software-assisted collection of mainstream upstream, producer, and downstream
+    # companies that may matter for this chemical. This is the broad candidate pool.
+    discovery:
+      objective: "Collect mainstream upstream/downstream companies related to aniline."
+      candidate_companies:
+        - key: basf
+          relationship: "integrated chemical producer with aniline / MDI / polyurethane-chain exposure"
+          industries: ["upstream chemicals", "aniline chain", "polyurethane downstream"]
+        - key: covestro
+          relationship: "major MDI / polyurethane downstream company"
+          industries: ["MDI", "polyurethane downstream"]
+        - key: huntsman
+          relationship: "US chemical company with polyurethane / MDI exposure"
+          industries: ["MDI", "polyurethane downstream", "specialty chemicals"]
+        - key: tosoh
+          relationship: "Asian chemical company with related basic-chemical and polyurethane-chain exposure"
+          industries: ["basic chemicals", "polyurethane chain", "Asia market"]
+
+    # Layer 2: selection / replacement.
+    # The user chooses which discovered companies or industries should be included
+    # in the current run. Replacing this list changes the model's company scope.
+    selected_companies:
+      - key: basf
+        selected_industries: ["upstream chemicals", "aniline chain", "polyurethane downstream"]
+        reason: "Use BASF to capture integrated chemical and European cost commentary."
+      - key: covestro
+        selected_industries: ["MDI", "polyurethane downstream"]
+        reason: "Use Covestro for downstream demand, margin, and regional commentary."
+      - key: huntsman
+        selected_industries: ["MDI", "polyurethane downstream"]
+        reason: "Use Huntsman as the standard US SEC filer in the selected peer set."
+      - key: tosoh
+        selected_industries: ["basic chemicals", "Asia market"]
+        reason: "Use Tosoh to keep an Asia/Japan market reference in scope."
+
+companies:
+  # Layer 3 lives under each company: user-specified sites / URLs and the
+  # information we want from each source.
+  basf:
+    name: "BASF SE"
+    cik: "1024148"
+    cik_lookup_terms: ["BASF SE", "BASF"]
+    sources:
+      - source_type: "sec"
+        name: "SEC EDGAR submissions"
+        url: "https://data.sec.gov/submissions"
+        target_forms: ["10-K", "10-K/A", "10-Q", "10-Q/A"]
+        fallback_forms: ["20-F", "20-F/A", "6-K", "6-K/A"]
+        expected_update_frequency: "annual/quarterly; 6-K or 8-K may provide ad-hoc updates"
+        report_frequencies: ["annual", "quarterly", "monthly"]
+        check_monthly_reports: true
+        monthly_report_keywords: ["monthly", "month", "sales", "production", "volume", "update"]
+        weekly_optional: true
+        weekly_report_keywords: ["weekly", "press release", "8-k", "6-k", "outage", "shutdown", "capacity"]
+        desired_information:
+          - "annual and interim filing metadata"
+          - "whether any monthly sales, production, or investor update is available"
+          - "optional weekly/event-driven updates if requested by the consumer"
+          - "raw-material and energy cost commentary"
+          - "segment margin and regional market commentary"
+    notes: "Foreign filer; first checks 10-K/10-Q, then falls back to 20-F/6-K when EDGAR has no domestic issuer forms."
+
+  covestro:
+    name: "Covestro AG"
+    cik_lookup_terms: ["Covestro AG", "Covestro"]
+    sources:
+      - source_type: "company_ir"
+        name: "Covestro investor reports"
+        url: "https://www.covestro.com/en/investors/reports-and-presentations"
+        target_forms: ["annual_report", "quarterly_report", "half_year_report"]
+        fallback_forms: []
+        expected_update_frequency: "annual/quarterly/half-year; check page for monthly updates"
+        report_frequencies: ["annual", "quarterly", "monthly"]
+        check_monthly_reports: true
+        monthly_report_keywords: ["monthly", "month", "sales", "production", "volume", "update"]
+        weekly_optional: true
+        weekly_report_keywords: ["weekly", "news", "press release", "outage", "shutdown", "capacity"]
+        desired_information:
+          - "annual, half-year, and quarterly report links"
+          - "whether Covestro publishes any monthly sales, production, or market update"
+          - "optional weekly/company-news updates if requested by the consumer"
+          - "MDI / polyurethane demand commentary"
+          - "energy, utilization, and margin pressure"
+    notes: "German company; SEC 10-K/10-Q is unlikely, so use official Covestro IR reports."
+
+  huntsman:
+    name: "Huntsman Corporation"
+    ticker: "HUN"
+    cik_lookup_terms: ["Huntsman Corporation", "Huntsman"]
+    sources:
+      - source_type: "sec"
+        name: "SEC EDGAR submissions"
+        url: "https://data.sec.gov/submissions"
+        target_forms: ["10-K", "10-K/A", "10-Q", "10-Q/A"]
+        fallback_forms: []
+        expected_update_frequency: "annual/quarterly; 8-K may provide more current updates"
+        report_frequencies: ["annual", "quarterly", "monthly"]
+        check_monthly_reports: true
+        monthly_report_keywords: ["monthly", "month", "sales", "production", "volume", "update"]
+        weekly_optional: true
+        weekly_report_keywords: ["weekly", "press release", "8-k", "outage", "shutdown", "capacity"]
+        desired_information:
+          - "10-K and 10-Q filing metadata"
+          - "whether any monthly sales, production, or investor update is available"
+          - "optional weekly/event-driven updates if requested by the consumer"
+          - "US cost, demand, and segment commentary"
+          - "polyurethane / MDI market signals"
+    notes: "US filer; standard 10-K/10-Q pull."
+
+  tosoh:
+    name: "Tosoh Corporation"
+    cik_lookup_terms: ["Tosoh Corporation", "Tosoh"]
+    sources:
+      - source_type: "sec"
+        name: "SEC EDGAR submissions"
+        url: "https://data.sec.gov/submissions"
+        target_forms: ["10-K", "10-K/A", "10-Q", "10-Q/A"]
+        fallback_forms: ["20-F", "20-F/A", "6-K", "6-K/A"]
+        expected_update_frequency: "annual/quarterly if SEC filings exist; 6-K may provide ad-hoc updates"
+        report_frequencies: ["annual", "quarterly", "monthly"]
+        check_monthly_reports: true
+        monthly_report_keywords: ["monthly", "month", "sales", "production", "volume", "update"]
+        weekly_optional: true
+        weekly_report_keywords: ["weekly", "press release", "6-k", "outage", "shutdown", "capacity"]
+        desired_information:
+          - "SEC availability audit"
+          - "whether any monthly sales, production, or investor update is available"
+          - "optional weekly/event-driven updates if requested by the consumer"
+          - "foreign-filer annual/interim filing metadata if available"
+          - "Asia/Japan market context"
+    notes: "Foreign company; checks 10-K/10-Q first, then 20-F/6-K if a CIK exists."
