@@ -79,6 +79,19 @@ CREATE TABLE IF NOT EXISTS chemicals (
     hts_codes                  TEXT             NOT NULL,       -- JSON array of HTS code strings
     status                     TEXT             NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS producer_filings (
+    company_name    TEXT NOT NULL,
+    ticker          TEXT,
+    source          TEXT NOT NULL,        -- e.g. 'SEC_EDGAR'
+    filing_type     TEXT NOT NULL,        -- e.g. '10-K', '10-Q'
+    filing_date     TEXT NOT NULL,
+    period_end_date TEXT,
+    source_url      TEXT NOT NULL,
+    local_file_path TEXT,
+    fetched_at      TEXT NOT NULL,
+    notes           TEXT
+);
 """
 
 # Column order per table -- the INSERT/verification helpers and the schema-match
