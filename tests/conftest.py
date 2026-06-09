@@ -30,6 +30,23 @@ load_dotenv(ROOT / ".env")
 TEST_SCHEMA = f"pytest_{uuid.uuid4().hex[:12]}"
 
 
+def pytest_configure(config):
+    """In CI, a missing DATABASE_URL must FAIL the run, not silently skip.
+
+    The db_conn fixture skips when DATABASE_URL is unset so a developer without
+    Neon access can still run the pure-logic tests locally. But on CI that same
+    skip would quietly drop every DB-backed test while the run stayed green -- a
+    false pass. CI runners set CI=true, so we hard-fail there instead. (To allow
+    skips even in a CI-like shell, unset CI.)
+    """
+    if os.environ.get("CI") and not os.environ.get("DATABASE_URL"):
+        raise pytest.UsageError(
+            "DATABASE_URL is not set but CI is detected. DB-backed tests would "
+            "skip silently and the run would falsely pass. Configure the "
+            "DATABASE_URL repository secret (or unset CI to allow local skips)."
+        )
+
+
 @pytest.fixture
 def db_conn():
     """Yield a Postgres connection whose tables live in an isolated temp schema."""

@@ -1,7 +1,7 @@
 """
 prices.py -- price resolver for the should-cost engine (Cat 3 seam).
 
-Turns the raw market signals in the SQLite store into a per-ton price for any
+Turns the raw market signals in the Postgres store into a per-ton price for any
 chemical the engine needs, so the cost calculators (feedstock 3.1, utility 3.2)
 can ask resolve_price_usd_per_ton(chemical_id, period, region, conn) without
 caring whether a price was a direct lookup or a derivation.
