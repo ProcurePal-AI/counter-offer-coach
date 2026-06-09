@@ -87,23 +87,33 @@ def feedstock_masses_per_ton(route: dict, mw: dict[str, float]) -> dict[str, flo
             cid = inp["chemical_id"]
             # tons of input per `qty_tons` of this step's output:
             #   stoich (mol/mol) x MW ratio (mass/mass) / yield (loss gross-up)
-            mass_in = qty_tons * float(inp["stoichiometric_ratio"]) * (mw[cid] / mw_out) / yield_frac
+            mass_in = (
+                qty_tons * float(inp["stoichiometric_ratio"]) * (mw[cid] / mw_out) / yield_frac
+            )
             need(cid, mass_in)
 
     need(final_product(route), 1.0)
     return masses
 
 
-def feedstock_cost(process: str, route_name: str, period: str, region: str,
-                   price_fn: PriceFn, *, config_path: Path | None = None,
-                   registry_path: Path | None = None) -> dict:
+def feedstock_cost(
+    process: str,
+    route_name: str,
+    period: str,
+    region: str,
+    price_fn: PriceFn,
+    *,
+    config_path: Path | None = None,
+    registry_path: Path | None = None,
+    route_override: dict | None = None,
+) -> dict:
     """Feedstock cost ($/ton of final product) plus a per-feedstock breakdown.
 
     Raises PriceUnavailable (listing every missing feed) if any purchased
     feedstock has no price source yet -- a feedstock cost with a guessed input
     would be worse than no number.
     """
-    route = load_route(process, route_name, config_path)
+    route = route_override or load_route(process, route_name, config_path)
     mw = load_registry_mw(registry_path)
     masses = feedstock_masses_per_ton(route, mw)
 
@@ -126,8 +136,7 @@ def feedstock_cost(process: str, route_name: str, period: str, region: str,
 
     if missing:
         raise PriceUnavailable(
-            "cannot compute feedstock cost; missing prices:\n  - "
-            + "\n  - ".join(missing)
+            "cannot compute feedstock cost; missing prices:\n  - " + "\n  - ".join(missing)
         )
 
     return {
@@ -144,8 +153,7 @@ def _main() -> int:
     route = load_route(process, route_name)
     mw = load_registry_mw()
 
-    print(f"Feedstock masses per ton of {final_product(route)} "
-          f"({process}/{route_name}):")
+    print(f"Feedstock masses per ton of {final_product(route)} " f"({process}/{route_name}):")
     for cid, mass in sorted(feedstock_masses_per_ton(route, mw).items()):
         print(f"  {cid:12s} {mass:.4f} t/t   ({mass * 1000:.1f} kg/t)")
 
@@ -158,15 +166,20 @@ def _main() -> int:
         conn = storage.connect()
         try:
             result = feedstock_cost(
-                process, route_name, "2025-01", "US",
+                process,
+                route_name,
+                "2025-01",
+                "US",
                 lambda c, p, r: prices.resolve_price_usd_per_ton(c, p, r, conn),
             )
         finally:
             conn.close()
         print(f"\nFeedstock cost: ${result['feedstock_cost_usd_per_ton']:.2f}/ton")
         for cid, ln in result["by_feedstock"].items():
-            print(f"  {cid:12s} {ln['mass_t_per_t']:.4f} t/t x "
-                  f"${ln['price_usd_per_ton']:.2f}/t = ${ln['cost_usd_per_ton']:.2f}/t")
+            print(
+                f"  {cid:12s} {ln['mass_t_per_t']:.4f} t/t x "
+                f"${ln['price_usd_per_ton']:.2f}/t = ${ln['cost_usd_per_ton']:.2f}/t"
+            )
     except PriceUnavailable as exc:
         print(f"\n(no full cost yet -- {exc})")
     except Exception as exc:  # missing DB, etc.

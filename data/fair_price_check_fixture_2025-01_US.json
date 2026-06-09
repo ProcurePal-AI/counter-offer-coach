@@ -1,0 +1,101 @@
+{
+  "note": "Fixture-price check output for reviewing 3.4/3.5 structure. This is NOT live Cat 2 output because DATABASE_URL is not set locally.",
+  "fixture_prices": {
+    "feedstock_usd_per_metric_ton": {
+      "benzene": 800.0,
+      "nitric_acid": 350.0,
+      "hydrogen": 1500.0
+    },
+    "utility_prices": {
+      "electricity_usd_per_kwh": 0.075,
+      "steam_usd_per_gj": 3.0
+    }
+  },
+  "result": {
+    "month": "2025-01",
+    "region": "US",
+    "currency": "USD_per_metric_ton",
+    "p10": 1251.6802160104623,
+    "p50": 1258.5185956066061,
+    "p90": 1265.7306262963746,
+    "breakdown": {
+      "feedstock": {
+        "p10": 1028.1408656412088,
+        "p50": 1034.0563756680785,
+        "p90": 1040.2804535138318
+      },
+      "utility": {
+        "p10": 38.975414365044934,
+        "p50": 39.026168501705826,
+        "p90": 39.07450163853143
+      },
+      "markup": {
+        "p10": 184.51131043530867,
+        "p50": 185.44515082935447,
+        "p90": 186.423102656793
+      }
+    },
+    "route": "benzene_nitration_hydrogenation",
+    "n_draws": 1000,
+    "uncertainty": {
+      "sampled": [
+        {
+          "path": "steps.nitration.yield_pct",
+          "low": 97.0,
+          "base": 98.0,
+          "high": 99.0
+        },
+        {
+          "path": "steps.hydrogenation.yield_pct",
+          "low": 98.5,
+          "base": 99.0,
+          "high": 99.5
+        }
+      ],
+      "deterministic": [
+        {
+          "path": "steps.nitration.energy.electricity_kwh_per_ton_output",
+          "low": 120.0,
+          "base": 120.0,
+          "high": 120.0
+        },
+        {
+          "path": "steps.nitration.energy.steam_gj_per_ton_output",
+          "low": 1.5,
+          "base": 1.5,
+          "high": 1.5
+        },
+        {
+          "path": "steps.hydrogenation.energy.electricity_kwh_per_ton_output",
+          "low": 180.0,
+          "base": 180.0,
+          "high": 180.0
+        },
+        {
+          "path": "steps.hydrogenation.energy.steam_gj_per_ton_output",
+          "low": 2.5,
+          "base": 2.5,
+          "high": 2.5
+        },
+        {
+          "path": "markup.variable_pct",
+          "low": 0.02,
+          "base": 0.02,
+          "high": 0.02
+        },
+        {
+          "path": "markup.fixed_pct",
+          "low": 0.08,
+          "base": 0.08,
+          "high": 0.08
+        },
+        {
+          "path": "markup.target_margin_pct",
+          "low": 0.05,
+          "base": 0.05,
+          "high": 0.05
+        }
+      ]
+    }
+  }
+}
