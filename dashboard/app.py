@@ -36,16 +36,19 @@ REGISTRY_PATH = ROOT / "config" / "chemical_registry.yaml"
 #
 # Return shape of get_source_status(): a list of dicts, one per source:
 #     source:            str   -- source name, e.g. "EIA"
-#     latest_period:     str   -- month of the most recent fetched_at, "YYYY-MM" (None
-#                                 if no data). PubChem uses the registry file's month.
+#     latest_period:     str   -- the source's most recent DATA period, "YYYY-MM" (None
+#                                 if no data, or for one-time PubChem identity).
+#     last_fetched:      str   -- date we last pulled this source, "YYYY-MM-DD" (None if
+#                                 no data). For PubChem, the registry file's date.
 #     rows:              int   -- total row count for that source
 #     expected_cadence:  str   -- "monthly" | "quarterly" | "annual" | "one-time"
 def _live_status() -> dict[str, dict]:
     """Read real per-source status from Postgres. Returns {} on any failure.
 
-    `latest_period` is the month of the most recent `fetched_at` (when the source was
-    last pulled), sliced to "YYYY-MM". PubChem identity has no `fetched_at` column, so
-    it keeps approximating its month from the registry file's modification time.
+    Two dates per source: `latest_period` = MAX(period) (how far the source's data
+    extends), and `last_fetched` = the date of MAX(fetched_at) (when we last pulled).
+    PubChem identity has neither column, so it reports only a `last_fetched`
+    approximated from the registry file's modification date.
     """
     try:
         import storage
@@ -66,28 +69,30 @@ def _live_status() -> dict[str, dict]:
         with conn.cursor() as cur:
             for source, table, cadence in feeds:
                 cur.execute(
-                    f"SELECT COUNT(*), MAX(fetched_at) FROM {table} WHERE source = %s",
+                    f"SELECT COUNT(*), MAX(period), MAX(fetched_at) FROM {table} WHERE source = %s",
                     (source,),
                 )
-                count, latest = cur.fetchone()
+                count, latest_period, fetched_at = cur.fetchone()
                 if count:
                     out[source] = {
                         "source": source,
-                        "latest_period": latest[:7] if latest else None,  # fetched_at -> YYYY-MM
+                        "latest_period": latest_period,                          # data period, YYYY-MM
+                        "last_fetched": fetched_at[:10] if fetched_at else None,  # pull date, YYYY-MM-DD
                         "rows": count,
                         "expected_cadence": cadence,
                     }
 
-            # PubChem -> chemicals (one-time reference identity; no timestamp column,
-            # so approximate "last pulled" from the registry file's modification month)
+            # PubChem -> chemicals (one-time reference identity; no period or fetched_at
+            # column, so report only a last_fetched from the registry file's mod date)
             cur.execute("SELECT COUNT(*) FROM chemicals")
             (count,) = cur.fetchone()
             if count:
-                pulled = None
+                fetched = None
                 if REGISTRY_PATH.exists():
-                    pulled = datetime.fromtimestamp(REGISTRY_PATH.stat().st_mtime).strftime("%Y-%m")
-                out["PubChem"] = {"source": "PubChem", "latest_period": pulled,
-                                  "rows": count, "expected_cadence": "one-time"}
+                    fetched = datetime.fromtimestamp(REGISTRY_PATH.stat().st_mtime).strftime("%Y-%m-%d")
+                out["PubChem"] = {"source": "PubChem", "latest_period": None,
+                                  "last_fetched": fetched, "rows": count,
+                                  "expected_cadence": "one-time"}
     except Exception:
         return {}
     finally:
@@ -101,11 +106,11 @@ def get_source_status() -> list[dict]:
     # never fake numbers. USGS and EDGAR connectors are not built yet, so they have
     # no live query and always stay "no data".
     no_data = {
-        "EIA":     {"source": "EIA",     "latest_period": None, "rows": 0, "expected_cadence": "monthly"},
-        "USITC":   {"source": "USITC",   "latest_period": None, "rows": 0, "expected_cadence": "monthly"},
-        "USGS":    {"source": "USGS",    "latest_period": None, "rows": 0, "expected_cadence": "annual"},
-        "EDGAR":   {"source": "EDGAR",   "latest_period": None, "rows": 0, "expected_cadence": "quarterly"},
-        "PubChem": {"source": "PubChem", "latest_period": None, "rows": 0, "expected_cadence": "one-time"},
+        "EIA":     {"source": "EIA",     "latest_period": None, "last_fetched": None, "rows": 0, "expected_cadence": "monthly"},
+        "USITC":   {"source": "USITC",   "latest_period": None, "last_fetched": None, "rows": 0, "expected_cadence": "monthly"},
+        "USGS":    {"source": "USGS",    "latest_period": None, "last_fetched": None, "rows": 0, "expected_cadence": "annual"},
+        "EDGAR":   {"source": "EDGAR",   "latest_period": None, "last_fetched": None, "rows": 0, "expected_cadence": "quarterly"},
+        "PubChem": {"source": "PubChem", "latest_period": None, "last_fetched": None, "rows": 0, "expected_cadence": "one-time"},
     }
     live = _live_status()
     return [
@@ -164,11 +169,10 @@ for col, item in zip(columns, sources):
             cadence = CADENCE_LABEL.get(item["expected_cadence"], item["expected_cadence"])
 
             if is_one_time:
-                # One-time reference pull (e.g. PubChem chemical identity). Not a
-                # time series, so we show the snapshot size and pull month and skip
-                # the "days old" metric -- freshness/staleness does not apply here.
+                # One-time reference pull (e.g. PubChem chemical identity). Not a time
+                # series, so there is no data "period" -- show only when it was pulled.
                 st.markdown(f"#### {item['source']}")
-                st.metric(label="Last pulled", value=item["latest_period"] or "—")
+                st.metric(label="Last fetched", value=item.get("last_fetched") or "—")
                 st.markdown(f"Rows — **{item['rows']:,}**")
                 st.markdown(f"Cadence — **{cadence}**")
                 st.caption("Reference identity (one-time pull)")
@@ -177,13 +181,16 @@ for col, item in zip(columns, sources):
                 st.markdown(f"#### :gray[{item['source']}]")
                 st.markdown(":gray[**데이터 없음**]")
                 st.markdown(":gray[Latest period — —]")
-                st.markdown(":gray[Age — —]")
+                st.markdown(":gray[Last fetched — —]")
                 st.markdown(f":gray[Rows — {item['rows']:,}]")
                 st.markdown(f":gray[Cadence — {cadence}]")
             else:
+                # Two dates: the latest DATA period (how current the source's data is)
+                # plus when we last pulled it. "days ago" measures the data period.
                 age_days = days_since_period(item["latest_period"])
                 st.markdown(f"#### {item['source']}")
                 st.metric(label="Latest period", value=item["latest_period"])
-                st.markdown(f"**{age_days:,} days ago**")
+                st.markdown(f"**{age_days:,} days ago** (data)")
+                st.markdown(f"Last fetched — **{item.get('last_fetched') or '—'}**")
                 st.markdown(f"Rows — **{item['rows']:,}**")
                 st.markdown(f"Cadence — **{cadence}**")
