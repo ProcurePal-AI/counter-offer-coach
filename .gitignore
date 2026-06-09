@@ -6,10 +6,12 @@ venv/
 data/raw/
 data/*.sqlite
 data/*.db
+data/producer_filings_sec_edgar.csv
+data/sec_edgar_filings/
 *.sqlite
 *.db
 .DS_Store
 .pytest_cache/
 .ruff_cache/
-.omc/ 
-.env
+.omc/
+*.egg-info/
