@@ -35,7 +35,6 @@ from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prices import PriceUnavailable  # noqa: E402
 from feedstock import (  # noqa: E402  -- reuse loaders + product detection
-    CONFIG_DIR,
     ROOT,
     final_product,
     load_registry_mw,
@@ -66,7 +65,9 @@ def step_output_masses_per_ton(route: dict, mw: dict[str, float]) -> dict[str, f
         mw_out = mw[step["main_output"]]
         for inp in step["inputs"]:
             cid = inp["chemical_id"]
-            mass_in = qty_tons * float(inp["stoichiometric_ratio"]) * (mw[cid] / mw_out) / yield_frac
+            mass_in = (
+                qty_tons * float(inp["stoichiometric_ratio"]) * (mw[cid] / mw_out) / yield_frac
+            )
             need(cid, mass_in)
 
     need(final_product(route), 1.0)
@@ -80,23 +81,30 @@ _ENERGY_FIELDS = {
 }
 
 
-def utility_cost(process: str, route_name: str, period: str, region: str,
-                 utility_price_fn: UtilityPriceFn, *,
-                 include_catalyst: bool = True,
-                 config_path: Path | None = None,
-                 registry_path: Path | None = None) -> dict:
+def utility_cost(
+    process: str,
+    route_name: str,
+    period: str,
+    region: str,
+    utility_price_fn: UtilityPriceFn,
+    *,
+    include_catalyst: bool = True,
+    config_path: Path | None = None,
+    registry_path: Path | None = None,
+    route_override: dict | None = None,
+) -> dict:
     """Utility (electricity + steam) cost per ton of final product, with breakdown.
 
     Raises PriceUnavailable (listing every missing utility) rather than guess.
     `catalyst_cost_usd_per_ton` is reported separately when include_catalyst.
     """
-    route = load_route(process, route_name, config_path)
+    route = route_override or load_route(process, route_name, config_path)
     mw = load_registry_mw(registry_path)
     step_mass = step_output_masses_per_ton(route, mw)
 
     by_utility: dict[str, dict] = {}
     by_step: dict[str, dict] = {}
-    qty_totals: dict[str, float] = {}      # utility_kind -> total qty per ton product
+    qty_totals: dict[str, float] = {}  # utility_kind -> total qty per ton product
     catalyst_total = 0.0
     missing: list[str] = []
 
@@ -140,8 +148,7 @@ def utility_cost(process: str, route_name: str, period: str, region: str,
 
     if missing:
         raise PriceUnavailable(
-            "cannot compute utility cost; missing utility prices:\n  - "
-            + "\n  - ".join(missing)
+            "cannot compute utility cost; missing utility prices:\n  - " + "\n  - ".join(missing)
         )
 
     result = {
@@ -166,8 +173,7 @@ def _main() -> int:
     route = load_route(process, route_name)
     mw = load_registry_mw()
 
-    print(f"Step-output masses per ton of {final_product(route)} "
-          f"({process}/{route_name}):")
+    print(f"Step-output masses per ton of {final_product(route)} " f"({process}/{route_name}):")
     for sid, mass in step_output_masses_per_ton(route, mw).items():
         print(f"  {sid:14s} {mass:.4f} t output / t product")
 
@@ -179,16 +185,23 @@ def _main() -> int:
         conn = storage.connect()
         try:
             result = utility_cost(
-                process, route_name, "2025-01", "US",
+                process,
+                route_name,
+                "2025-01",
+                "US",
                 lambda k, p, r: prices.resolve_utility_price_usd_per_unit(k, p, r, conn),
             )
         finally:
             conn.close()
-        print(f"\nUtility cost: ${result['utility_cost_usd_per_ton']:.2f}/ton "
-              f"(+ catalyst ${result.get('catalyst_cost_usd_per_ton', 0):.2f}/ton)")
+        print(
+            f"\nUtility cost: ${result['utility_cost_usd_per_ton']:.2f}/ton "
+            f"(+ catalyst ${result.get('catalyst_cost_usd_per_ton', 0):.2f}/ton)"
+        )
         for kind, ln in result["by_utility"].items():
-            print(f"  {kind:12s} {ln['qty_per_ton']:.2f} {ln['unit']}/t x "
-                  f"${ln['price_usd_per_unit']:.4f} = ${ln['cost_usd_per_ton']:.2f}/t")
+            print(
+                f"  {kind:12s} {ln['qty_per_ton']:.2f} {ln['unit']}/t x "
+                f"${ln['price_usd_per_unit']:.4f} = ${ln['cost_usd_per_ton']:.2f}/t"
+            )
     except PriceUnavailable as exc:
         print(f"\n(no utility cost yet -- {exc})")
     except Exception as exc:  # missing DB, etc.
