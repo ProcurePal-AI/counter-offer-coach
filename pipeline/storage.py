@@ -156,7 +156,11 @@ def connect(dsn: str | None = None) -> PgConnection:
 
     `dsn` overrides DATABASE_URL (useful for pointing at a separate test database).
     """
-    conn = psycopg2.connect(dsn or _dsn())
+    # connect_timeout caps how long we wait for a connection. Without it psycopg2
+    # blocks forever when Neon's pooler queues the request (e.g. free-tier limit hit
+    # by concurrent CI runs), which hung CI indefinitely. 15s also covers Neon's
+    # compute cold-start. A stuck connection now fails fast instead of hanging.
+    conn = psycopg2.connect(dsn or _dsn(), connect_timeout=15)
     # Pin the schema explicitly. Neon's connection pooler can hand back a backend
     # whose session search_path was left pointing at a now-dropped schema by a
     # previous client (e.g. an isolated test), which would otherwise make an

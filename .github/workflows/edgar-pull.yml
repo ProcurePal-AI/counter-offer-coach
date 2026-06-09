@@ -1,0 +1,41 @@
+name: SEC EDGAR pull
+
+# Pulls 10-K/10-Q filing metadata for the producer companies and writes it into
+# the producer_filings table (PostgreSQL/Neon) plus a CSV artifact.
+#
+# The DB write needs the DATABASE_URL repository secret. The SEC user-agent has a
+# real-contact default in the code; override it with a SEC_USER_AGENT secret if you
+# want runs attributed to your own contact (SEC asks for one).
+on:
+  schedule:
+    - cron: "40 6 1 * *"   # monthly, 1st @ 06:40 UTC (after EIA/USITC)
+  workflow_dispatch:
+    inputs:
+      max_filings:
+        description: "Max target filings to keep per company"
+        required: false
+        default: "2"
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Pull SEC EDGAR filings
+        run: python pipeline/sec_edgar.py --max-filings ${{ github.event.inputs.max_filings || '2' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Export producer_filings to CSV
+        run: python -c "import sys; sys.path.insert(0, 'pipeline'); import storage; storage.dump_csv('producer_filings', 'data/producer_filings.csv')"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Upload producer_filings
+        uses: actions/upload-artifact@v4
+        with:
+          name: producer-filings
+          path: data/producer_filings.csv
+          if-no-files-found: error
