@@ -17,7 +17,7 @@ prices.py and is injected as `price_fn`, so feedstock costing is pure and
 testable with no database.
 
 CLI:  python engine/feedstock.py   # prints per-ton feedstock masses; tries a
-                                    # cost if the SQLite store has the prices.
+                                    # cost if the store has the prices.
 """
 
 from __future__ import annotations

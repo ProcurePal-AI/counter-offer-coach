@@ -26,11 +26,13 @@ jobs:
         run: python pipeline/eia.py
         env:
           EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
-      # The pipeline writes data/market.db (the real store). Project the
-      # utility_observations table to CSV so the artifact is readable inline on
-      # the run page without downloading and opening a binary .db.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # The pipeline writes to PostgreSQL (Neon). Project the utility_observations
+      # table to CSV so the artifact is readable inline on the run page.
       - name: Export utility_observations to CSV
         run: python -c "import sys; sys.path.insert(0, 'pipeline'); import storage; storage.dump_csv('utility_observations', 'data/utility_observations.csv')"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
       - name: Upload pulled data
         uses: actions/upload-artifact@v4
         with:

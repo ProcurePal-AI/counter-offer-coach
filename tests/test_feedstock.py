@@ -83,27 +83,19 @@ def test_missing_price_raises_not_guesses():
     assert "benzene" in str(exc.value) and "nitric_acid" in str(exc.value)
 
 
-def test_resolver_derives_hydrogen_from_gas(tmp_path):
+def test_resolver_derives_hydrogen_from_gas(db_conn):
     """hydrogen $/ton == Henry Hub $/MMBtu x NG_MMBTU_PER_TON_H2."""
-    conn = storage.connect(tmp_path / "t.db")
-    try:
-        storage.write_utility_observations([{
-            "utility": "natural_gas_henry_hub", "source": "EIA", "unit": "MMBtu",
-            "region": "US", "period": "2025-01", "price_usd_per_unit": 4.0,
-            "fetched_at": "2025-02-01T00:00:00+00:00",
-        }], conn=conn)
-        price = prices.resolve_price_usd_per_ton("hydrogen", "2025-01", "US", conn)
-        assert price == pytest.approx(4.0 * prices.NG_MMBTU_PER_TON_H2)
-    finally:
-        conn.close()
+    storage.write_utility_observations([{
+        "utility": "natural_gas_henry_hub", "source": "EIA", "unit": "MMBtu",
+        "region": "US", "period": "2025-01", "price_usd_per_unit": 4.0,
+        "fetched_at": "2025-02-01T00:00:00+00:00",
+    }], conn=db_conn)
+    price = prices.resolve_price_usd_per_ton("hydrogen", "2025-01", "US", db_conn)
+    assert price == pytest.approx(4.0 * prices.NG_MMBTU_PER_TON_H2)
 
 
-def test_resolver_refuses_pending_feeds(tmp_path):
+def test_resolver_refuses_pending_feeds(db_conn):
     """benzene (USITC) and nitric_acid (USGS) aren't ingested -> PriceUnavailable."""
-    conn = storage.connect(tmp_path / "t.db")
-    try:
-        for cid in ("nitric_acid",):
-            with pytest.raises(prices.PriceUnavailable):
-                prices.resolve_price_usd_per_ton(cid, "2025-01", "US", conn)
-    finally:
-        conn.close()
+    for cid in ("nitric_acid",):
+        with pytest.raises(prices.PriceUnavailable):
+            prices.resolve_price_usd_per_ton(cid, "2025-01", "US", db_conn)
