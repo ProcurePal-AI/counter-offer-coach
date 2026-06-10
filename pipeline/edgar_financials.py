@@ -272,6 +272,28 @@ def _write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
         writer.writerows(rows)
 
 
+def write_financials_to_db(rows: list[AnnualRatios]) -> int:
+    """Also persist the derived ratios into the Postgres `producer_financials` table.
+
+    Additive to the CSV output. Best-effort: if the store is unreachable (e.g. no
+    DATABASE_URL), the CSVs are still written and we just warn instead of failing.
+    """
+    if not rows:
+        return 0
+    try:
+        try:
+            from pipeline.storage import write_producer_financials
+        except ModuleNotFoundError:  # `python pipeline/edgar_financials.py` from repo root
+            from storage import write_producer_financials
+
+        fetched_at = date.today().isoformat()
+        db_rows = [{**asdict(r), "fetched_at": fetched_at} for r in rows]
+        return write_producer_financials(db_rows)
+    except Exception as exc:  # keep the CSV pull working even without a DB
+        print(f"  (skipped DB write -> producer_financials: {exc})")
+        return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Derive SG&A/D&A/EBIT revenue ratios from SEC XBRL companyfacts.")
@@ -309,6 +331,10 @@ def main() -> int:
 
     print(f"Wrote {len(all_rows)} rows -> {detail_path}")
     print(f"Wrote summary       -> {summary_path}")
+
+    written = write_financials_to_db(all_rows)
+    if written:
+        print(f"Also wrote {written} rows -> producer_financials (PostgreSQL)")
     peer = next(r for r in summary if r["company_key"] == PEER_KEY)
     pretty = ", ".join(f"{f}={peer[f]:.3f}" for f in RATIO_FIELDS if peer[f] is not None)
     print(f"PEER_MEDIAN: {pretty}")
