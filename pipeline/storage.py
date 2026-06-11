@@ -170,12 +170,19 @@ PRODUCER_FINANCIALS_COLUMNS = [
 def _dsn() -> str:
     """Return the Neon connection string, or fail with a clear message."""
     try:
-        return os.environ["DATABASE_URL"]
+        dsn = os.environ["DATABASE_URL"]
     except KeyError:
         raise RuntimeError(
             "DATABASE_URL is not set. Add it to the project-root .env file, e.g.\n"
             "  DATABASE_URL=postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require"
         ) from None
+    # Tolerate a value pasted with the variable-name prefix and/or surrounding
+    # whitespace/quotes (a common GitHub-secret entry mistake):
+    #   "DATABASE_URL=postgresql://..."  ->  "postgresql://..."
+    dsn = dsn.strip().strip('"').strip("'").strip()
+    if dsn.startswith("DATABASE_URL="):
+        dsn = dsn[len("DATABASE_URL="):].strip().strip('"').strip("'").strip()
+    return dsn
 
 
 def connect(dsn: str | None = None) -> PgConnection:
