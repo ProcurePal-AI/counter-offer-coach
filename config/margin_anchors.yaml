@@ -1,0 +1,61 @@
+# MARGIN ANCHORS BY COUNTRY -- the 3.3 markup layer's country parameterization.
+#
+# The markup math (engine/markup.py) is country-blind; what differs by country
+# is WHERE the revenue-share ratios (SG&A%, D&A%, EBIT%) come from. This file is
+# that parameterization, so adding a country never touches engine code.
+#
+# Modes:
+#   edgar_summary -- ratios load from the pipeline-generated EDGAR peer-median
+#                    CSV (pipeline/edgar_financials.py). US only: SEC XBRL.
+#   manual        -- ratios are entered by hand from a producer's published
+#                    financial statements, with MANDATORY source citations.
+#                    Used where no machine-readable XBRL equivalent exists
+#                    (e.g. Chinese listed producers).
+#
+# RULES for manual entries (enforced by pipeline/margin_anchors.py):
+#   * every ratio present must have a non-empty `source` citation;
+#   * ratios are fractions of REVENUE in [0, 0.6) -- they go in the markup
+#     denominator (price = cost / (1 - wedge)), never multiplied onto cost;
+#   * leave a ratio null if not yet researched -- the loader fails LOUDLY on
+#     null rather than letting an unanchored markup run silently.
+
+countries:
+  US:
+    mode: edgar_summary
+    summary_csv: data/edgar_financials_summary.csv
+    notes: >
+      Peer-median ratios from SEC XBRL companyfacts via
+      pipeline/edgar_financials.py (Huntsman anchor; extend with
+      --tickers HUN DOW OLN EMN for a peer median).
+
+  CN:
+    mode: manual
+    company: "Wanhua Chemical Group Co., Ltd."
+    listing: "SSE 600309"
+    disclosure_portal: "http://www.cninfo.com.cn (official CSRC disclosure site)"
+    # FILL FROM WANHUA'S ANNUAL REPORT INCOME STATEMENT + CASH FLOW STATEMENT.
+    # All ratios are line item / total operating revenue, same fiscal year.
+    # Use a multi-year median (3-5 years) to smooth the cycle, mirroring the
+    # EDGAR pipeline's median discipline. null = not yet researched = loader
+    # refuses to anchor on it.
+    ratios:
+      sga_pct:
+        value: null
+        source: ""        # e.g. "Wanhua 2024 Annual Report, p.XX: (selling+admin exp)/revenue, FY2020-2024 median"
+      da_pct:
+        value: null
+        source: ""        # cash-flow-statement D&A / revenue
+      ebit_margin_pct:
+        value: null
+        source: ""        # operating profit / revenue
+    # Conversion-gap residual (ex-D&A plant labor/maintenance), cost-side,
+    # fraction of the physical floor. Kept separate from the revenue ratios;
+    # same role as fixed_pct_ex_da in markup.params_from_edgar_ratios.
+    fixed_pct_ex_da:
+      value: 0.04
+      source: "Placeholder, mirrors US default; refine with Towler shift-position estimate for a CN plant."
+    notes: >
+      Chinese listed companies file under CAS with CSRC; there is no free
+      machine-readable XBRL companyfacts equivalent, so ratios are extracted
+      manually from the annual report and cited. Wanhua is the dominant
+      Chinese MDI/aniline-chain producer and the natural CN comparable.
