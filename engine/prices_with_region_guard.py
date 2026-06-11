@@ -75,6 +75,52 @@ class PriceUnavailable(LookupError):
     """No usable price source for this chemical is in the store yet."""
 
 
+# --- Region families (cross-country contamination guard) --------------------
+# Multi-country connectors (comtrade.py, future sunsirs.py) share the same
+# tables as US feeds, tagging rows like "CN_EXPORTS" / "DE_IMPORTS" / "CN_SPOT".
+# The resolvers below fall back from the exact region to related regions when a
+# month is missing -- but that fallback must NEVER cross a country boundary:
+# a US floor month silently priced from a Chinese export value would corrupt
+# the premium the model exists to measure.
+#
+# Rule: a region belongs to a foreign family iff it contains an underscore AND
+# its prefix is a known foreign country code ("CN_SPOT" -> CN). Everything else
+# (bare "US", "US_IMPORTS_ALL_ORIGINS", EIA state codes like "CA"/"DE") is the
+# legacy US family -- bare two-letter codes are US states, not countries, so
+# "DE" stays Delaware and only "DE_IMPORTS" is Germany.
+FOREIGN_REGION_PREFIXES = frozenset({
+    "CN", "DE", "JP", "KR", "IN", "BE", "NL", "FR", "IT", "GB", "ES", "BR",
+})
+
+
+def region_family(region: str) -> str:
+    """Family key for fallback compatibility: a foreign ISO prefix, or 'US'."""
+    if "_" in region:
+        prefix = region.split("_", 1)[0]
+        if prefix in FOREIGN_REGION_PREFIXES:
+            return prefix
+    return "US"
+
+
+def _family_clause(region: str) -> tuple[str, tuple]:
+    """SQL fragment confining a query to `region`'s family.
+
+    Foreign family X: rows whose underscore-prefix is X.
+    US family: rows that are NOT foreign-prefixed (bare regions included).
+    """
+    family = region_family(region)
+    if family == "US":
+        return (
+            "(position('_' in region) = 0 "
+            "OR split_part(region, '_', 1) <> ALL(%s))",
+            (list(FOREIGN_REGION_PREFIXES),),
+        )
+    return (
+        "(position('_' in region) > 0 AND split_part(region, '_', 1) = %s)",
+        (family,),
+    )
+
+
 def _fetchone(conn: Any, sql: str, params: tuple):
     """Run a single-row query through a psycopg2 cursor; return the row or None."""
     with conn.cursor() as cur:
@@ -107,13 +153,20 @@ def electricity_price_usd_per_kwh(conn: Any, period: str,
                                   region: str = "US") -> float:
     """Industrial electricity, $/kWh, for `period`/`region` (else latest <=).
 
-    Electricity is a per-state series, so we try the exact region first, then any
-    region, then the most recent at/<= period.
+    Electricity is a per-state series, so we try the exact region first, then
+    any region in the same family, then the most recent at/<= period in the
+    same family. State codes ("CA", "TX") are US-family; only underscore-tagged
+    foreign regions ("CN_SPOT") form foreign families -- so a Texas request can
+    still fall back to another state, but never to a Chinese tariff row.
     """
+    fam_sql, fam_params = _family_clause(region)
     for clause, args in (
-        ("utility = %s AND period = %s AND region = %s", (ELECTRICITY_UTILITY, period, region)),
-        ("utility = %s AND period = %s", (ELECTRICITY_UTILITY, period)),
-        ("utility = %s AND period <= %s", (ELECTRICITY_UTILITY, period)),
+        ("utility = %s AND period = %s AND region = %s",
+         (ELECTRICITY_UTILITY, period, region)),
+        (f"utility = %s AND period = %s AND {fam_sql}",
+         (ELECTRICITY_UTILITY, period, *fam_params)),
+        (f"utility = %s AND period <= %s AND {fam_sql}",
+         (ELECTRICITY_UTILITY, period, *fam_params)),
     ):
         row = _fetchone(
             conn,
@@ -158,13 +211,22 @@ def _price_observation_usd_per_kg(conn: Any, chemical_id: str,
                                   period: str, region: str) -> float | None:
     """Latest non-NULL market price ($/kg) for chemical_id at/<= period.
 
-    Tries region-specific, then any region, then most recent at/<= period.
+    Tries region-specific, then any region IN THE SAME FAMILY, then the most
+    recent at/<= period IN THE SAME FAMILY. The family restriction
+    (see region_family) keeps fallbacks inside one country's market: with only
+    US data in the store this is identical to the old behavior, but once
+    comtrade/sunsirs rows exist a US request can never silently resolve to a
+    CN_/DE_ price (and vice versa).
     NULL unit values (USITC keeps them for incomplete months) are excluded.
     """
+    fam_sql, fam_params = _family_clause(region)
     for clause, args in (
-        ("chemical_id = %s AND period = %s AND region = %s", (chemical_id, period, region)),
-        ("chemical_id = %s AND period = %s", (chemical_id, period)),
-        ("chemical_id = %s AND period <= %s", (chemical_id, period)),
+        ("chemical_id = %s AND period = %s AND region = %s",
+         (chemical_id, period, region)),
+        (f"chemical_id = %s AND period = %s AND {fam_sql}",
+         (chemical_id, period, *fam_params)),
+        (f"chemical_id = %s AND period <= %s AND {fam_sql}",
+         (chemical_id, period, *fam_params)),
     ):
         row = _fetchone(
             conn,
