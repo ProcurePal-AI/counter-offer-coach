@@ -56,7 +56,9 @@ def db_conn():
     import psycopg2
     import storage
 
-    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    # Use storage._dsn() so a secret pasted with a "DATABASE_URL=" prefix or stray
+    # quotes/whitespace is sanitized the same way the connectors connect.
+    conn = psycopg2.connect(storage._dsn())
     with conn.cursor() as cur:
         cur.execute(f"DROP SCHEMA IF EXISTS {TEST_SCHEMA} CASCADE")
         cur.execute(f"CREATE SCHEMA {TEST_SCHEMA}")

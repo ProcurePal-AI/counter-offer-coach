@@ -85,3 +85,15 @@ def test_producer_filings_round_trip(db_conn):
     with db_conn.cursor() as cur:
         cur.execute("SELECT company_name, filing_type, source FROM producer_filings")
         assert cur.fetchone() == ("BASF SE", "10-K", "SEC_EDGAR")
+
+
+def test_producer_financials_round_trip(db_conn):
+    """Derived producer financial ratios write into producer_financials."""
+    row = {"company_key": "HUN", "company_name": "Huntsman", "cik": "0001307954",
+           "fiscal_year": 2024, "revenue_usd": 6000000000.0, "sga_pct": 0.12,
+           "da_pct": 0.05, "ebit_margin_pct": 0.08, "ebitda_margin_pct": 0.13,
+           "gross_margin_pct": 0.18, "fetched_at": "2026-06-09"}
+    assert storage.write_producer_financials([row], db_conn) == 1
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT company_key, fiscal_year, ebit_margin_pct FROM producer_financials")
+        assert cur.fetchone() == ("HUN", 2024, 0.08)

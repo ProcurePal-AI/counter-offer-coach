@@ -92,6 +92,20 @@ CREATE TABLE IF NOT EXISTS producer_filings (
     fetched_at      TEXT NOT NULL,
     notes           TEXT
 );
+
+CREATE TABLE IF NOT EXISTS producer_financials (
+    company_key       TEXT             NOT NULL,
+    company_name      TEXT             NOT NULL,
+    cik               TEXT             NOT NULL,
+    fiscal_year       INTEGER          NOT NULL,
+    revenue_usd       DOUBLE PRECISION NOT NULL,
+    sga_pct           DOUBLE PRECISION,        -- revenue-share ratios; nullable when a
+    da_pct            DOUBLE PRECISION,        -- concept isn't tagged in the filing
+    ebit_margin_pct   DOUBLE PRECISION,
+    ebitda_margin_pct DOUBLE PRECISION,
+    gross_margin_pct  DOUBLE PRECISION,
+    fetched_at        TEXT             NOT NULL
+);
 """
 
 # Column order per table -- the INSERT/verification helpers and the schema-match
@@ -138,17 +152,37 @@ PRODUCER_FILINGS_COLUMNS = [
     "fetched_at",
     "notes",
 ]
+PRODUCER_FINANCIALS_COLUMNS = [
+    "company_key",
+    "company_name",
+    "cik",
+    "fiscal_year",
+    "revenue_usd",
+    "sga_pct",
+    "da_pct",
+    "ebit_margin_pct",
+    "ebitda_margin_pct",
+    "gross_margin_pct",
+    "fetched_at",
+]
 
 
 def _dsn() -> str:
     """Return the Neon connection string, or fail with a clear message."""
     try:
-        return os.environ["DATABASE_URL"]
+        dsn = os.environ["DATABASE_URL"]
     except KeyError:
         raise RuntimeError(
             "DATABASE_URL is not set. Add it to the project-root .env file, e.g.\n"
             "  DATABASE_URL=postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require"
         ) from None
+    # Tolerate a value pasted with the variable-name prefix and/or surrounding
+    # whitespace/quotes (a common GitHub-secret entry mistake):
+    #   "DATABASE_URL=postgresql://..."  ->  "postgresql://..."
+    dsn = dsn.strip().strip('"').strip("'").strip()
+    if dsn.startswith("DATABASE_URL="):
+        dsn = dsn[len("DATABASE_URL="):].strip().strip('"').strip("'").strip()
+    return dsn
 
 
 def connect(dsn: str | None = None) -> PgConnection:
@@ -285,6 +319,20 @@ def write_producer_filings(rows: list[dict], conn: PgConnection | None = None) -
             conn.close()
 
 
+def write_producer_financials(rows: list[dict], conn: PgConnection | None = None) -> int:
+    """Append derived producer financial ratios to `producer_financials`. Append-only."""
+    own = conn is None
+    conn = conn or connect()
+    try:
+        n = _insert_rows(conn, "producer_financials", PRODUCER_FINANCIALS_COLUMNS, rows)
+        if own:
+            conn.commit()
+        return n
+    finally:
+        if own:
+            conn.close()
+
+
 def dump_csv(table: str, out_path: Path | str, conn: PgConnection | None = None) -> int:
     """Export an entire table to CSV (header + all rows). Returns the row count.
 
@@ -319,7 +367,8 @@ def verify(conn: PgConnection | None = None, limit: int = 5) -> None:
     conn = conn or connect()
     try:
         with conn.cursor() as cur:
-            for table in ("utility_observations", "price_observations", "chemicals", "producer_filings"):
+            for table in ("utility_observations", "price_observations", "chemicals",
+                          "producer_filings", "producer_financials"):
                 cur.execute(f"SELECT COUNT(*) FROM {table}")
                 count = cur.fetchone()[0]
                 print(f"\n== {table}: {count} rows ==")
