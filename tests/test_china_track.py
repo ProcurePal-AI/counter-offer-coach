@@ -126,14 +126,17 @@ def test_sunsirs_ingest_and_normalize(tmp_path):
                              fetched_at="2026-06-10T00:00:00+00:00")
     by_key = {(r["chemical_id"], r["period"]): r for r in rows}
     aniline = by_key[("aniline", "2024-01")]
-    # monthly average 7200 RMB/ton / 7.10 / 1000 = 1.014085 USD/kg
-    assert aniline["price_usd_per_kg"] == pytest.approx(7200 / 7.10 / 1000, rel=1e-6)
+    # monthly average 7200 RMB/t VAT-incl. -> ex-VAT 7200/1.13, then /7.10/1000
+    # (global invariant: strip 13% VAT in RMB first, THEN convert FX)
+    assert aniline["price_usd_per_kg"] == pytest.approx(
+        7200 / 1.13 / 7.10 / 1000, rel=1e-4)
     assert aniline["region"] == "CN_SPOT"
     assert aniline["assessment_type"] == "spot"
     assert aniline["grade"] == "industrial"
     assert aniline["hts_code"] is None
     benzene = by_key[("benzene", "2024-02")]
-    assert benzene["price_usd_per_kg"] == pytest.approx(7810 / 7.10 / 1000, rel=1e-6)
+    assert benzene["price_usd_per_kg"] == pytest.approx(
+        7810 / 1.13 / 7.10 / 1000, rel=1e-4)
 
 
 def test_sunsirs_skips_period_without_fx(tmp_path, capsys):

@@ -58,6 +58,14 @@ CHEMICAL_BY_COMMODITY = {
     "pure benzene": "benzene",
     "ammonia": "ammonia",
     "liquid ammonia": "ammonia",
+    # Energy feed for the CN hydrogen derivation (engine/prices.py, Step 4).
+    # Not a registry chemical (mixture, no CAS/CID) -- like natural gas on the
+    # US side, it enters as an energy commodity. Confirm the series grade vs
+    # the 23.0 GJ/t (5500 kcal NAR) assumption in config/hydrogen_cn.yaml.
+    "thermal coal": "thermal_coal",
+    "steam coal": "thermal_coal",
+    "power coal": "thermal_coal",
+    "动力煤": "thermal_coal",
 }
 
 # Column-header aliases (lowercased) -> canonical field.
@@ -133,14 +141,25 @@ def read_licensed_file(path: Path) -> list[dict[str, Any]]:
 
 RateFn = Callable[[str], float]  # period -> CNY per USD
 
+# Chinese published commodity prices (SunSirs included) are VAT-inclusive; the
+# engine's cost basis is ex-VAT because input VAT is recoverable for producers
+# and is not a real production cost. GLOBAL INVARIANT for every SunSirs series:
+# strip VAT in RMB first, THEN convert FX (order is recorded in
+# docs/CHINA_TRACK.md and config/hydrogen_cn.yaml). Standard rate for goods
+# is 13% (since Apr 2019). Pass vat_rate=0.0 only if a series is documented
+# as already ex-VAT.
+CN_VAT_RATE = 0.13
+
 
 def normalize_rows(records: list[dict[str, Any]], rate_fn: RateFn,
-                   fetched_at: str | None = None) -> list[dict[str, Any]]:
-    """Daily/periodic licensed records -> monthly schema rows in USD/kg.
+                   fetched_at: str | None = None,
+                   vat_rate: float = CN_VAT_RATE) -> list[dict[str, Any]]:
+    """Daily/periodic licensed records -> monthly schema rows in USD/kg, ex-VAT.
 
     Per (chemical, period, grade): average the RMB/ton observations within the
-    month, then convert with that month's average FX rate. A period whose FX
-    rate is unavailable is SKIPPED LOUDLY (printed), never guessed.
+    month, strip VAT (divide by 1+vat_rate, in RMB), then convert with that
+    month's average FX rate. A period whose FX rate is unavailable is SKIPPED
+    LOUDLY (printed), never guessed.
     """
     fetched_at = fetched_at or datetime.now(timezone.utc).isoformat()
     groups: dict[tuple, list[float]] = {}
@@ -152,6 +171,7 @@ def normalize_rows(records: list[dict[str, Any]], rate_fn: RateFn,
     for (chemical_id, period, grade) in sorted(groups, key=lambda k: (k[0], k[1])):
         rmb_avg = sum(groups[(chemical_id, period, grade)]) / len(
             groups[(chemical_id, period, grade)])
+        rmb_ex_vat = rmb_avg / (1.0 + vat_rate)  # strip VAT in RMB, then FX
         try:
             cny_per_usd = rate_fn(period)
         except (KeyError, LookupError):
@@ -163,7 +183,7 @@ def normalize_rows(records: list[dict[str, Any]], rate_fn: RateFn,
             "source": SOURCE,
             "region": REGION,
             "period": period,
-            "price_usd_per_kg": rmb_per_ton_to_usd_per_kg(rmb_avg, cny_per_usd),
+            "price_usd_per_kg": rmb_per_ton_to_usd_per_kg(rmb_ex_vat, cny_per_usd),
             "fetched_at": fetched_at,
             "hts_code": None,            # assessment feed, not a tariff line
             "grade": grade,

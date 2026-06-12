@@ -29,6 +29,7 @@ price.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any  # conn is a psycopg2 connection (DB-agnostic type to avoid a hard import)
 
 # --- Derivation constants --------------------------------------------------
@@ -55,6 +56,89 @@ NG_MMBTU_PER_TON_H2 = 165.0
 # that sits below market by design (the gap is the premium the Bayesian phase
 # estimates). Derivation assumption, not a market quote.
 T_NH3_PER_T_HNO3 = 0.284
+
+# ---------------------------------------------------------------------------
+# China-basis hydrogen (Step 4 of the China-basis checklist).
+#
+# Chinese hydrogen is coal-based, not gas-based (coal supplies 56.5% of CN H2;
+# IEA/ICSC 2023). Two sourcing realities exist, so two branches:
+#
+#   standalone_gasification -- merchant / non-integrated producers. Full cash
+#     cost of unabated coal gasification:
+#       coal $/GJ x GJ_COAL_PER_KG_H2 / CN_COAL_SHARE_OF_FULL_COST
+#     Factor 0.232 GJ(LHV)/kg verified against Gan et al. 2026 (CJCHE,
+#     doi 10.1016/j.cjche.2026.04.010) Tables 13/15 own economics; band
+#     0.218 (NETL 2022 via IEA/ICSC 2023 Table 6) to 0.258 (Mukherjee 2014,
+#     Energy & Fuels 28:1028, all-coal-charged bound). Coal share ~50% of full
+#     cost: China Hydrogen Alliance via IEA/ICSC 2023 Table 15 commentary.
+#     Unabated basis deliberate: IEA/ICSC 2023 reports no fossil-with-CCUS H2
+#     operating in China.
+#
+#   integrated_byproduct -- Wanhua-class complexes ("one head, four tails"):
+#     on-site PDH (C3H8 -> C3H6 + H2, ~3.8 wt% H2) and CO-sized coal gasifiers
+#     yield captive by-product H2 whose alternative use is FUEL, so its
+#     opportunity cost is fuel-equivalent value:
+#       coal $/GJ x H2_FUEL_VALUE_GJ_PER_KG  (H2 LHV 120 MJ/kg)
+#     A floor by design (omits PSA separation cost), consistent with how this
+#     module already floors hydrogen (gas energy only) and nitric acid
+#     (ammonia only). Wanhua Yantai co-locates PDH + MDI + aniline (Metso
+#     project records; 2018 EIA expansion scope), so this branch applies to
+#     integrated suppliers; sourcing default lives in config/hydrogen_cn.yaml.
+#
+# Sanity window (engine self-check, not an input): CN unabated coal-H2 is
+# 1.16-2.32 $/kg (China Hydrogen Alliance / Sheng 2022 via IEA/ICSC 2023
+# Table 15). Standalone-branch output far outside ~1.0-3.3 $/kg at prevailing
+# coal prices indicates a units/VAT/FX/grade bug, not a market move.
+# ---------------------------------------------------------------------------
+GJ_COAL_PER_KG_H2 = 0.232          # central; Monte Carlo band 0.218-0.258
+CN_COAL_SHARE_OF_FULL_COST = 0.50  # band 0.45-0.55
+H2_FUEL_VALUE_GJ_PER_KG = 0.120    # H2 LHV
+COAL_GJ_PER_TON = 23.0             # 5500 kcal/kg NAR benchmark; CONFIRM vs SunSirs grade
+THERMAL_COAL_CHEMICAL_ID = "thermal_coal"  # price_observations id (SunSirs, CN_SPOT, ex-VAT)
+CN_H2_SOURCING_DEFAULT = "standalone_gasification"  # conservative: can only overstate the floor
+
+
+def cn_coal_price_usd_per_gj(conn: Any, period: str, region: str) -> float:
+    """Thermal-coal energy price ($/GJ) from the CN-family price_observations.
+
+    The stored series is USD/kg (SunSirs RMB/t, VAT-stripped and FX-converted at
+    ingest by pipeline/sunsirs.py); divide by the benchmark heating value.
+    """
+    price_kg = _price_observation_usd_per_kg(conn, THERMAL_COAL_CHEMICAL_ID, period, region)
+    if price_kg is None:
+        raise PriceUnavailable(
+            f"{THERMAL_COAL_CHEMICAL_ID}: no CN-family observation at/<= {period}; "
+            "ingest the licensed SunSirs thermal-coal series (pipeline/sunsirs.py)"
+        )
+    return price_kg * 1000.0 / COAL_GJ_PER_TON
+
+
+def hydrogen_price_usd_per_ton_cn(conn: Any, period: str, region: str,
+                                  sourcing: str | None = None) -> float:
+    """CN-basis hydrogen $/ton via the two-branch coal derivation (see header)."""
+    if sourcing is None:
+        sourcing = _hydrogen_cn_sourcing_from_config()
+    coal_gj = cn_coal_price_usd_per_gj(conn, period, region)
+    if sourcing == "integrated_byproduct":
+        return coal_gj * H2_FUEL_VALUE_GJ_PER_KG * 1000.0
+    if sourcing == "standalone_gasification":
+        return coal_gj * GJ_COAL_PER_KG_H2 / CN_COAL_SHARE_OF_FULL_COST * 1000.0
+    raise ValueError(f"unknown hydrogen_cn sourcing {sourcing!r}; "
+                     "expected 'standalone_gasification' or 'integrated_byproduct'")
+
+
+def _hydrogen_cn_sourcing_from_config() -> str:
+    """Read the sourcing branch from config/hydrogen_cn.yaml; safe default if absent."""
+    try:
+        import yaml
+        cfg_path = Path(__file__).resolve().parent.parent / "config" / "hydrogen_cn.yaml"
+        with open(cfg_path, encoding="utf-8") as fh:
+            cfg = yaml.safe_load(fh) or {}
+        sourcing = cfg.get("hydrogen_cn", {}).get("sourcing", CN_H2_SOURCING_DEFAULT)
+        return str(sourcing)
+    except FileNotFoundError:
+        return CN_H2_SOURCING_DEFAULT
+
 
 HENRY_HUB_UTILITY = "natural_gas_henry_hub"  # utility_observations.utility, $/MMBtu
 ELECTRICITY_UTILITY = "electricity_industrial"  # utility_observations.utility, $/kWh
@@ -250,6 +334,11 @@ def resolve_price_usd_per_ton(chemical_id: str, period: str, region: str,
                               conn: Any) -> float:
     """Per-ton price for `chemical_id`. Raises PriceUnavailable if no source yet."""
     if chemical_id == "hydrogen":
+        # Basis follows the region family: CN hydrogen is coal-derived (two-branch,
+        # see header), everything else keeps the gas-SMR derivation. Never let a
+        # CN floor silently price hydrogen off US Henry Hub gas, or vice versa.
+        if region_family(region) == "CN":
+            return hydrogen_price_usd_per_ton_cn(conn, period, region)
         return gas_price_usd_per_mmbtu(conn, period, region) * NG_MMBTU_PER_TON_H2
 
     if chemical_id == "nitric_acid":

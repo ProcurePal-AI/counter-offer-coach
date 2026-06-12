@@ -1,0 +1,56 @@
+# China-basis hydrogen configuration (Step 4 of the China-basis checklist).
+# Read by engine/prices.py (_hydrogen_cn_sourcing_from_config). Full derivation
+# and source verification: docs/HYDROGEN_CN.md and docs/research/hydrogen_cn_basis.md.
+
+hydrogen_cn:
+  # Which branch the CN floor uses. Switch per asset profile:
+  #   standalone_gasification -- merchant / non-integrated aniline producers.
+  #     CONSERVATIVE DEFAULT: full unabated coal-gasification cash cost; can only
+  #     overstate the floor, never understate it. If the CN floor ever violates
+  #     floor <= observed price, suspect this selection first.
+  #   integrated_byproduct -- Wanhua-class "one head, four tails" complexes with
+  #     on-site PDH / CO-sized gasifiers feeding captive by-product H2 to the
+  #     aniline unit. Opportunity cost = fuel-equivalent value (floor by design;
+  #     omits PSA separation, like every other derivation floor in the engine).
+  sourcing: standalone_gasification
+
+  branches:
+    standalone_gasification:
+      formula: "coal_usd_per_GJ * conversion_gj_coal_per_kg_h2 / coal_share_of_full_cost"
+      basis: coal_gasification_unabated   # IEA/ICSC 2023: no CCUS H2 operating in CN
+      conversion_gj_coal_per_kg_h2:
+        value: 0.232
+        band: [0.218, 0.258]
+        source: >
+          Gan et al. 2026, Chinese J. Chem. Eng. (doi 10.1016/j.cjche.2026.04.010)
+          Tables 13/15, verified against the paper's own economics (0.2318 x 2.11
+          $/GJ = 0.489 $/kg = stated annual coal cost / annual H2 exactly);
+          band edges: NETL 2022 via IEA/ICSC 2023 Table 6 (65% eff, HHV) and
+          Mukherjee et al. 2014 Energy & Fuels 28:1028 Table 8 (all-coal bound).
+      coal_share_of_full_cost:
+        value: 0.50
+        band: [0.45, 0.55]
+        source: "China Hydrogen Alliance Research Institute via IEA/ICSC 2023, Table 15 commentary"
+      sanity_window_usd_per_kg: [1.16, 2.32]   # CN unabated, Sheng 2022 via IEA/ICSC 2023 Table 15
+    integrated_byproduct:
+      formula: "coal_usd_per_GJ * h2_fuel_value_gj_per_kg"
+      h2_fuel_value_gj_per_kg:
+        value: 0.120                            # H2 LHV
+        source: >
+          By-product H2's alternative use is fuel (PDH: C3H8 -> C3H6 + H2,
+          ~3.8 wt% H2; disposition "fuel or export" per industry technology
+          literature), so opportunity cost = displaced fuel energy value.
+          Wanhua Yantai co-locates PDH + MDI + aniline/nitrobenzene/nitric acid
+          (Metso MDI-integration project records; 2018 EIA expansion scope).
+      note: >
+        Floor by design: omits PSA purification. Always <= the standalone branch,
+        so switching an integrated supplier to this branch lowers the floor and
+        cannot create a floor<=price violation.
+
+  coal_input:
+    chemical_id: thermal_coal                   # price_observations id
+    series: "SunSirs thermal coal, region CN_SPOT"
+    heating_value_gj_per_t:
+      value: 23.0                               # 5500 kcal/kg NAR benchmark grade
+      note: "CONFIRM against the licensed SunSirs series spec before --write"
+    vat_note: "price must be ex-VAT (13% stripped) before FX conversion (global SunSirs invariant)"
