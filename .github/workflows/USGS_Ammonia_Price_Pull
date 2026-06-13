@@ -1,0 +1,31 @@
+on:
+  workflow_dispatch:
+    inputs:
+      start_year:
+        description: 'Start year'
+        required: false
+        default: '2022'
+      end_year:
+        description: 'End year'
+        required: false
+        default: '2024'
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Pull USGS ammonia prices (dry run)
+        run: |
+          python pipeline/usgs_minerals.py \
+            --start-year ${{ inputs.start_year }} \
+            --end-year ${{ inputs.end_year }} \
+            --dry-run
