@@ -88,6 +88,9 @@ _MCS_URL = "https://pubs.usgs.gov/periodicals/mcs{pub_year}/mcs{pub_year}-nitrog
 _FALLBACK_EDITIONS = 3  # try pub_year = data_year+1, +2, +3
 
 
+_SHORT_TON_TO_METRIC_TON = 0.90718474
+
+# Public exceptions & data types
 class USGSParseError(RuntimeError):
     """Raised when an ammonia price cannot be extracted from a USGS PDF."""
 
@@ -396,18 +399,29 @@ def ingest_ammonia_prices(
         except USGSParseError as exc:
             print(f"  WARNING: {year} skipped -- {exc}", file=sys.stderr)
             continue
-        flag = f"  [{rec.notes}]" if rec.notes else ""
-        print(
-            f"  {year}: ${rec.raw_price:,.2f}/{rec.raw_unit} "
-            f"-> ${rec.price_usd_per_kg:.4f}/kg via {rec.parse_strategy}{flag}"
-        )
-        records.append(rec)
-        rows.append(build_price_row(rec, fetched_at))
 
-    if rows:
-        write_price_observations(rows, dry_run=dry_run)
-    else:
-        print("  no ammonia prices parsed; nothing written.", file=sys.stderr)
+      sql = """
+        INSERT OR REPLACE INTO ammonia_prices 
+        (data_year, price_usd_per_metric_ton, source_url, parse_strategy, notes) 
+        VALUES (?, ?, ?, ?, ?)
+        """ if overwrite else """
+        INSERT OR IGNORE INTO ammonia_prices 
+        (data_year, price_usd_per_metric_ton, source_url, parse_strategy, notes) 
+        VALUES (?, ?, ?, ?, ?)
+        """
+        
+        db_conn.execute(
+            sql,
+            (rec.data_year, rec.price_usd_per_metric_ton,
+             rec.source_url, rec.parse_strategy, rec.notes),
+        )
+        db_conn.commit()
+        records.append(rec)
+        logger.info(
+            "Ingested %s: $%.2f/t via %s", year,
+            rec.price_usd_per_metric_ton, rec.parse_strategy
+        )
+
     return records
 
 
